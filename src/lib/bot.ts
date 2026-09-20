@@ -325,7 +325,7 @@ function createBot(token: string) {
   // /speedtest
   bot.command("speedtest", async (ctx) => {
     const msg = await ctx.reply(
-      "🌐 Menjalankan speedtest... Mohon tunggu ⏳\n_(Ini mungkin memerlukan 10\\-20 detik)_",
+      "🌐 Menjalankan speedtest\\.\\.\\. Mohon tunggu ⏳\n_(Ini mungkin memerlukan 10\\-20 detik)_",
       { parse_mode: "MarkdownV2" }
     );
 
