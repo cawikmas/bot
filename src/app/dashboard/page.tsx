@@ -1,364 +1,396 @@
-import { db } from "@/db";
-import {
-  groupMembers,
-  botLogs,
-  userWarnings,
-  bannedWords,
-  groupNotes,
-  userStats,
-  groupSettings,
-} from "@/db/schema";
-import { sql, desc, eq, and } from "drizzle-orm";
-import Link from "next/link";
+"use client";
 
-export const dynamic = "force-dynamic";
+import { useEffect, useState, useCallback } from "react";
 
-export default async function DashboardPage() {
-  const [
-    members,
-    logs,
-    warnings,
-    banned,
-    notes,
-    groupSettingsList,
-    commandStatsResult,
-    groupStatsResult,
-    topActiveUsers,
-  ] = await Promise.all([
-    db.select().from(groupMembers).orderBy(desc(groupMembers.updatedAt)).limit(30),
-    db.select().from(botLogs).orderBy(desc(botLogs.createdAt)).limit(50),
-    db.select().from(userWarnings).orderBy(desc(userWarnings.createdAt)).limit(20),
-    db.select().from(bannedWords),
-    db.select().from(groupNotes),
-    db.select().from(groupSettings),
-    db
-      .select({ command: botLogs.command, count: sql<number>`count(*)` })
-      .from(botLogs)
-      .groupBy(botLogs.command)
-      .orderBy(sql`count(*) desc`),
-    db
-      .select({ chatId: groupMembers.chatId, memberCount: sql<number>`count(*)` })
-      .from(groupMembers)
-      .where(eq(groupMembers.isActive, true))
-      .groupBy(groupMembers.chatId),
-    db.select().from(userStats).orderBy(desc(userStats.messageCount)).limit(10),
-  ]);
+interface Member {
+  id: number;
+  chatId: string;
+  userId: string;
+  username: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  messageCount: number | null;
+  xpPoints: number | null;
+  level: number | null;
+  coins: number | null;
+  warnings: number | null;
+  isBanned: boolean | null;
+  lastSeenAt: string | null;
+}
 
-  const commandStats = commandStatsResult.map((s) => ({
-    command: s.command,
-    count: Number(s.count),
-  }));
+interface StatDay {
+  date: string;
+  totalMessages: number | null;
+  totalCommands: number | null;
+}
 
-  const groupStats = groupStatsResult.map((g) => ({
-    chatId: g.chatId,
-    memberCount: Number(g.memberCount),
-  }));
+interface DashboardData {
+  recentStats: StatDay[];
+  totalUsers: number;
+  totalGroups: number;
+  topMembers: Member[];
+  topCoins: Member[];
+}
 
-  const commandIcons: Record<string, string> = {
-    start: "▶️", help: "❓", ping: "🏓", speedtest: "🚀", tagall: "👥",
-    tagadmin: "👑", sticker: "🎨", gift: "🎁", info: "ℹ️", stats: "📊",
-    warn: "⚠️", kick: "🚫", mute: "🔇", unmute: "🔊", promote: "⭐",
-    demote: "👤", addbanned: "🚫", delbanned: "✂️", listbanned: "📋",
-    antispam: "🛡️", note: "📌", getnote: "📖", notes: "📚", delnote: "🗑️",
-    topactive: "🏆", qr: "🔲", calc: "🧮", currency: "💱", translate: "🌐",
-    weather: "🌤️", poll: "📊", setwelcome: "👋", welcome: "🎉",
-    setmaxwarn: "⚙️", uptime: "⏱️",
+const COMMANDS = [
+  // Moderasi
+  { cmd: "/ban", desc: "Ban member", cat: "🛡️ Moderasi", adminOnly: true },
+  { cmd: "/unban", desc: "Unban member", cat: "🛡️ Moderasi", adminOnly: true },
+  { cmd: "/kick", desc: "Kick member", cat: "🛡️ Moderasi", adminOnly: true },
+  { cmd: "/mute [waktu]", desc: "Mute member (1m/1h/1d)", cat: "🛡️ Moderasi", adminOnly: true },
+  { cmd: "/unmute", desc: "Unmute member", cat: "🛡️ Moderasi", adminOnly: true },
+  { cmd: "/warn", desc: "Beri peringatan", cat: "🛡️ Moderasi", adminOnly: true },
+  { cmd: "/unwarn", desc: "Hapus peringatan terbaru", cat: "🛡️ Moderasi", adminOnly: true },
+  { cmd: "/warns", desc: "Lihat daftar peringatan", cat: "🛡️ Moderasi", adminOnly: false },
+  { cmd: "/purge", desc: "Hapus pesan massal", cat: "🛡️ Moderasi", adminOnly: true },
+  { cmd: "/pin", desc: "Pin pesan", cat: "🛡️ Moderasi", adminOnly: true },
+  { cmd: "/unpin", desc: "Unpin semua pesan", cat: "🛡️ Moderasi", adminOnly: true },
+  { cmd: "/promote", desc: "Jadikan admin", cat: "🛡️ Moderasi", adminOnly: true },
+  { cmd: "/demote", desc: "Turunkan admin", cat: "🛡️ Moderasi", adminOnly: true },
+  // Grup
+  { cmd: "/tagall", desc: "Tag semua member aktif", cat: "👥 Grup", adminOnly: true },
+  { cmd: "/tagadmin", desc: "Tag semua admin", cat: "👥 Grup", adminOnly: false },
+  { cmd: "/ping", desc: "Cek latency bot", cat: "👥 Grup", adminOnly: false },
+  { cmd: "/speedtest", desc: "Tes kecepatan server", cat: "👥 Grup", adminOnly: false },
+  { cmd: "/welcome", desc: "Lihat pesan welcome", cat: "👥 Grup", adminOnly: false },
+  { cmd: "/setwelcome [pesan]", desc: "Atur pesan welcome", cat: "👥 Grup", adminOnly: true },
+  { cmd: "/setgoodbye [pesan]", desc: "Atur pesan goodbye", cat: "👥 Grup", adminOnly: true },
+  { cmd: "/rules", desc: "Tampilkan peraturan grup", cat: "👥 Grup", adminOnly: false },
+  { cmd: "/antilink", desc: "Toggle anti-link", cat: "👥 Grup", adminOnly: true },
+  { cmd: "/antispam", desc: "Toggle anti-spam", cat: "👥 Grup", adminOnly: true },
+  { cmd: "/settings", desc: "Lihat pengaturan grup", cat: "👥 Grup", adminOnly: true },
+  { cmd: "/poll Q | A | B", desc: "Buat polling", cat: "👥 Grup", adminOnly: false },
+  { cmd: "/giveaway H|M|N", desc: "Buat giveaway", cat: "👥 Grup", adminOnly: true },
+  { cmd: "/joingiveaway [ID]", desc: "Ikut giveaway", cat: "👥 Grup", adminOnly: false },
+  { cmd: "/endgiveaway [ID]", desc: "Akhiri giveaway", cat: "👥 Grup", adminOnly: true },
+  { cmd: "/sticker [teks]", desc: "Buat stiker SVG", cat: "👥 Grup", adminOnly: false },
+  { cmd: "/broadcast [pesan]", desc: "Broadcast ke grup", cat: "👥 Grup", adminOnly: true },
+  // Info
+  { cmd: "/start", desc: "Mulai bot", cat: "ℹ️ Info", adminOnly: false },
+  { cmd: "/help", desc: "Daftar semua perintah", cat: "ℹ️ Info", adminOnly: false },
+  { cmd: "/info", desc: "Info bot & grup", cat: "ℹ️ Info", adminOnly: false },
+  { cmd: "/id", desc: "Tampilkan ID", cat: "ℹ️ Info", adminOnly: false },
+  { cmd: "/whois", desc: "Info detail member", cat: "ℹ️ Info", adminOnly: false },
+  { cmd: "/profile", desc: "Profil kamu", cat: "ℹ️ Info", adminOnly: false },
+  { cmd: "/rank", desc: "Rank XP kamu", cat: "ℹ️ Info", adminOnly: false },
+  { cmd: "/leaderboard", desc: "Top 10 member aktif", cat: "ℹ️ Info", adminOnly: false },
+  { cmd: "/stats", desc: "Statistik bot", cat: "ℹ️ Info", adminOnly: false },
+  // Fun
+  { cmd: "/dice", desc: "Lempar dadu 🎲", cat: "🎮 Fun", adminOnly: false },
+  { cmd: "/flip", desc: "Lempar koin 🪙", cat: "🎮 Fun", adminOnly: false },
+  { cmd: "/8ball [pertanyaan]", desc: "Magic 8-ball 🎱", cat: "🎮 Fun", adminOnly: false },
+  { cmd: "/rps [batu|kertas|gunting]", desc: "Suit", cat: "🎮 Fun", adminOnly: false },
+  { cmd: "/joke", desc: "Humor acak 😄", cat: "🎮 Fun", adminOnly: false },
+  { cmd: "/quote", desc: "Quote inspirasi", cat: "🎮 Fun", adminOnly: false },
+  { cmd: "/savequote", desc: "Simpan quote member", cat: "🎮 Fun", adminOnly: false },
+  { cmd: "/randomquote", desc: "Quote random tersimpan", cat: "🎮 Fun", adminOnly: false },
+  { cmd: "/trivia", desc: "Pertanyaan trivia", cat: "🎮 Fun", adminOnly: false },
+  { cmd: "/math", desc: "Soal matematika", cat: "🎮 Fun", adminOnly: false },
+  { cmd: "/choose A, B, C", desc: "Pilihan acak", cat: "🎮 Fun", adminOnly: false },
+  { cmd: "/reverse [teks]", desc: "Balik teks", cat: "🎮 Fun", adminOnly: false },
+  { cmd: "/mock [teks]", desc: "Mock teks", cat: "🎮 Fun", adminOnly: false },
+  { cmd: "/aesthetic [teks]", desc: "Teks estetik", cat: "🎮 Fun", adminOnly: false },
+  // Ekonomi
+  { cmd: "/daily", desc: "Klaim hadiah harian 🎁", cat: "💰 Ekonomi", adminOnly: false },
+  { cmd: "/balance", desc: "Cek saldo koin", cat: "💰 Ekonomi", adminOnly: false },
+  { cmd: "/transfer [jml]", desc: "Transfer koin ke member", cat: "💰 Ekonomi", adminOnly: false },
+  { cmd: "/give [jml]", desc: "Beri koin ke member", cat: "💰 Ekonomi", adminOnly: false },
+  { cmd: "/richlist", desc: "Top 10 terkaya", cat: "💰 Ekonomi", adminOnly: false },
+  { cmd: "/gamble [jml]", desc: "Judi koin 🎰", cat: "💰 Ekonomi", adminOnly: false },
+  // Tools
+  { cmd: "/calc [ekspresi]", desc: "Kalkulator", cat: "🔧 Tools", adminOnly: false },
+  { cmd: "/convert [val] [dari] [ke]", desc: "Konversi satuan", cat: "🔧 Tools", adminOnly: false },
+  { cmd: "/note [kunci] [isi]", desc: "Simpan catatan", cat: "🔧 Tools", adminOnly: true },
+  { cmd: "/notes", desc: "Lihat semua catatan", cat: "🔧 Tools", adminOnly: false },
+  { cmd: "/getnote [kunci]", desc: "Ambil catatan", cat: "🔧 Tools", adminOnly: false },
+  { cmd: "/delnote [kunci]", desc: "Hapus catatan", cat: "🔧 Tools", adminOnly: true },
+  { cmd: "#kunci", desc: "Tampilkan catatan otomatis", cat: "🔧 Tools", adminOnly: false },
+  { cmd: "/weather [kota]", desc: "Cuaca real-time", cat: "🔧 Tools", adminOnly: false },
+  { cmd: "/translate [lang] [teks]", desc: "Terjemah teks", cat: "🔧 Tools", adminOnly: false },
+  { cmd: "/qr [teks/url]", desc: "Buat QR code", cat: "🔧 Tools", adminOnly: false },
+  { cmd: "/tinyurl [url]", desc: "Persingkat URL", cat: "🔧 Tools", adminOnly: false },
+  { cmd: "/define [kata]", desc: "Definisi kata (EN)", cat: "🔧 Tools", adminOnly: false },
+  { cmd: "/afk [alasan]", desc: "Set status AFK", cat: "🔧 Tools", adminOnly: false },
+  { cmd: "/ascii [teks]", desc: "Teks ASCII", cat: "🔧 Tools", adminOnly: false },
+  { cmd: "/feedback [pesan]", desc: "Kirim feedback", cat: "🔧 Tools", adminOnly: false },
+];
+
+const CATEGORIES = [...new Set(COMMANDS.map((c) => c.cat))];
+
+export default function DashboardPage() {
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<"overview" | "commands" | "members">("overview");
+  const [selectedCat, setSelectedCat] = useState("all");
+  const [search, setSearch] = useState("");
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await fetch("/api/dashboard/stats");
+      const json = await res.json();
+      if (json.ok) setData(json.data);
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  const copyCmd = (cmd: string) => {
+    navigator.clipboard.writeText(cmd.split(" ")[0]);
+    setCopied(cmd);
+    setTimeout(() => setCopied(null), 2000);
   };
 
-  // Build member map for user stats
-  const memberMap: Record<number, { firstName?: string | null; username?: string | null }> = {};
-  for (const m of members) memberMap[m.userId] = { firstName: m.firstName, username: m.username };
+  const filteredCommands = COMMANDS.filter((c) => {
+    const matchCat = selectedCat === "all" || c.cat === selectedCat;
+    const matchSearch = !search || c.cmd.toLowerCase().includes(search.toLowerCase()) ||
+      c.desc.toLowerCase().includes(search.toLowerCase());
+    return matchCat && matchSearch;
+  });
+
+  const totalMessages = data?.recentStats.reduce((s, d) => s + (d.totalMessages ?? 0), 0) ?? 0;
+  const totalCommands = data?.recentStats.reduce((s, d) => s + (d.totalCommands ?? 0), 0) ?? 0;
+  const todayMessages = data?.recentStats[0]?.totalMessages ?? 0;
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
       {/* Header */}
-      <div className="border-b border-slate-800 bg-slate-900/80 px-6 py-4 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
+      <header className="border-b border-white/10 backdrop-blur-sm sticky top-0 z-50 bg-slate-900/80">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-2xl">🤖</span>
+            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-xl">
+              🤖
+            </div>
             <div>
-              <h1 className="font-bold text-white">TeleBot Pro Dashboard</h1>
-              <p className="text-xs text-slate-400">Monitoring & Manajemen Bot</p>
+              <h1 className="font-bold text-lg leading-none">TeleBot Pro</h1>
+              <p className="text-xs text-slate-400">Dashboard Admin</p>
             </div>
           </div>
-          <Link href="/" className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-700">
-            ← Beranda
-          </Link>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+            <span className="text-sm text-green-400">Online</span>
+          </div>
         </div>
-      </div>
+      </header>
 
-      <div className="mx-auto max-w-7xl px-6 py-8">
-        {/* Stats Cards */}
-        <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-8">
-          {[
-            { label: "Member", value: members.filter((m) => m.isActive).length, icon: "👥", color: "from-blue-500 to-blue-700" },
-            { label: "Grup", value: groupStats.length, icon: "💬", color: "from-purple-500 to-purple-700" },
-            { label: "Commands", value: logs.length, icon: "⚡", color: "from-green-500 to-green-700" },
-            { label: "Peringatan", value: warnings.length, icon: "⚠️", color: "from-yellow-500 to-orange-600" },
-            { label: "Kata Banned", value: banned.length, icon: "🚫", color: "from-red-500 to-red-700" },
-            { label: "Catatan", value: notes.length, icon: "📌", color: "from-pink-500 to-rose-600" },
-            { label: "Pengaturan Grup", value: groupSettingsList.length, icon: "⚙️", color: "from-teal-500 to-cyan-600" },
-            { label: "Uptime", value: "100%", icon: "✅", color: "from-emerald-500 to-green-600" },
-          ].map((s) => (
-            <div key={s.label} className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-4 text-center">
-              <div className={`mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${s.color} text-xl shadow`}>
-                {s.icon}
-              </div>
-              <div className="text-2xl font-bold text-white">{s.value}</div>
-              <div className="text-xs text-slate-400">{s.label}</div>
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        {/* Hero */}
+        <div className="relative rounded-3xl overflow-hidden mb-8 bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 p-8">
+          <div className="relative z-10">
+            <h2 className="text-3xl font-bold mb-2">🤖 TeleBot Pro v2.0</h2>
+            <p className="text-blue-200 mb-4">Bot Telegram lengkap dengan 65+ fitur canggih</p>
+            <div className="flex flex-wrap gap-2">
+              {["✅ Moderasi", "💰 Ekonomi", "🎮 Fun Games", "🔧 Tools", "📊 Statistik", "🎁 Giveaway"].map((tag) => (
+                <span key={tag} className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full text-sm">{tag}</span>
+              ))}
             </div>
+          </div>
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute top-4 right-4 text-9xl">🤖</div>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-2 mb-6">
+          {[
+            { id: "overview", label: "📊 Overview" },
+            { id: "commands", label: "⌨️ Commands" },
+            { id: "members", label: "👥 Members" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as typeof activeTab)}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                activeTab === tab.id
+                  ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20"
+                  : "bg-white/10 text-slate-300 hover:bg-white/20"
+              }`}
+            >
+              {tab.label}
+            </button>
           ))}
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Grup Terdaftar */}
-          <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6">
-            <h2 className="mb-4 flex items-center gap-2 font-bold text-white">
-              <span>💬</span> Grup Terdaftar
-            </h2>
-            {groupStats.length === 0 ? (
-              <div className="py-6 text-center text-slate-500">
-                <p className="text-3xl">💬</p>
-                <p className="mt-2 text-sm">Belum ada grup</p>
-                <p className="text-xs text-slate-600">Tambahkan bot ke grup & ketik /start</p>
+        {/* ── OVERVIEW TAB ─────────────────────────────────────── */}
+        {activeTab === "overview" && (
+          <div>
+            {/* Stats Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              {[
+                { icon: "👥", label: "Total Users", value: (data?.totalUsers ?? 0).toLocaleString(), color: "from-blue-500 to-cyan-500" },
+                { icon: "💬", label: "Pesan Hari Ini", value: todayMessages.toLocaleString(), color: "from-green-500 to-emerald-500" },
+                { icon: "🏠", label: "Grup Aktif", value: (data?.totalGroups ?? 0).toLocaleString(), color: "from-purple-500 to-pink-500" },
+                { icon: "⚡", label: "Total Commands", value: totalCommands.toLocaleString(), color: "from-orange-500 to-yellow-500" },
+              ].map((stat) => (
+                <div key={stat.label} className="bg-white/5 border border-white/10 rounded-2xl p-4 hover:bg-white/10 transition">
+                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center text-lg mb-3`}>
+                    {stat.icon}
+                  </div>
+                  <p className="text-2xl font-bold">{loading ? "..." : stat.value}</p>
+                  <p className="text-slate-400 text-sm">{stat.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Activity Chart */}
+            {data?.recentStats && data.recentStats.length > 0 && (
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-8">
+                <h3 className="font-semibold mb-4 text-slate-200">📈 Aktivitas 7 Hari Terakhir</h3>
+                <div className="flex items-end gap-2 h-32">
+                  {[...data.recentStats].reverse().map((stat, i) => {
+                    const max = Math.max(...data.recentStats.map((s) => s.totalMessages ?? 0), 1);
+                    const height = ((stat.totalMessages ?? 0) / max) * 100;
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                        <div
+                          className="w-full bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-md transition-all duration-500 min-h-1"
+                          style={{ height: `${Math.max(height, 4)}%` }}
+                          title={`${stat.totalMessages ?? 0} pesan`}
+                        ></div>
+                        <span className="text-xs text-slate-500 truncate w-full text-center">
+                          {stat.date.slice(5)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            ) : (
-              <div className="space-y-2">
-                {groupStats.map((g) => {
-                  const settings = groupSettingsList.find((s) => s.chatId === g.chatId);
-                  return (
-                    <div key={g.chatId} className="flex items-center justify-between rounded-xl bg-slate-900/50 p-3">
+            )}
+
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Top Members */}
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
+                <h3 className="font-semibold mb-4 text-slate-200">🏆 Top Member (XP)</h3>
+                <div className="space-y-3">
+                  {loading ? (
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="h-12 bg-white/5 rounded-xl animate-pulse" />
+                    ))
+                  ) : data?.topMembers.slice(0, 5).map((m, i) => (
+                    <div key={m.id} className="flex items-center gap-3 bg-white/5 rounded-xl p-3">
+                      <span className="text-lg">{["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i]}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">
+                          {m.username ? `@${m.username}` : (m.firstName ?? "Unknown")}
+                        </p>
+                        <p className="text-xs text-slate-400">Level {m.level} • {(m.xpPoints ?? 0).toLocaleString()} XP</p>
+                      </div>
+                      <span className="text-blue-400 text-sm font-mono">{m.messageCount ?? 0} msg</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Setup Guide */}
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
+                <h3 className="font-semibold mb-4 text-slate-200">🚀 Setup Bot</h3>
+                <ol className="space-y-3 text-sm">
+                  {[
+                    { step: "1", title: "Fork/Clone repo ini ke GitHub", desc: "Pastikan kode sudah ada di GitHub kamu" },
+                    { step: "2", title: "Buat bot di @BotFather", desc: "Dapatkan TELEGRAM_BOT_TOKEN" },
+                    { step: "3", title: "Deploy ke Vercel", desc: "Import repo dari GitHub, set env vars" },
+                    { step: "4", title: "Setup webhook", desc: "GET /api/setup-webhook?secret=YOUR_SECRET" },
+                    { step: "5", title: "Tambah bot ke grup", desc: "Jadikan bot sebagai admin grup" },
+                    { step: "6", title: "Update via GitHub", desc: "Push kode baru → Vercel auto-deploy" },
+                  ].map((item) => (
+                    <li key={item.step} className="flex gap-3">
+                      <span className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
+                        {item.step}
+                      </span>
                       <div>
-                        <p className="font-mono text-xs text-slate-400">ID: {g.chatId}</p>
-                        <div className="mt-1 flex gap-1">
-                          {settings?.antiSpamEnabled && (
-                            <span className="rounded bg-red-900/50 px-1.5 py-0.5 text-xs text-red-300">🛡️ Anti-spam</span>
-                          )}
-                          {settings?.welcomeEnabled !== false && (
-                            <span className="rounded bg-green-900/50 px-1.5 py-0.5 text-xs text-green-300">👋 Welcome</span>
-                          )}
-                        </div>
+                        <p className="font-medium text-white">{item.title}</p>
+                        <p className="text-slate-400 text-xs">{item.desc}</p>
                       </div>
-                      <div className="text-right">
-                        <span className="font-semibold text-white">{g.memberCount}</span>
-                        <p className="text-xs text-slate-400">member</p>
-                      </div>
-                    </div>
-                  );
-                })}
+                    </li>
+                  ))}
+                </ol>
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* Member Terbaru */}
-          <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6">
-            <h2 className="mb-4 flex items-center gap-2 font-bold text-white">
-              <span>👥</span> Member Terbaru
-            </h2>
-            {members.length === 0 ? (
-              <div className="py-6 text-center text-slate-500">
-                <p className="text-3xl">👥</p>
-                <p className="mt-2 text-sm">Belum ada member tercatat</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {members.slice(0, 10).map((m) => (
-                  <div key={m.id} className="flex items-center gap-3 rounded-xl bg-slate-900/50 p-2.5">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-bold text-white">
-                      {(m.firstName || m.username || "?").charAt(0).toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-white">
-                        {m.firstName || m.username || `User ${m.userId}`}
-                      </p>
-                      {m.username && <p className="text-xs text-slate-400">@{m.username}</p>}
-                    </div>
-                    <span className={`h-2 w-2 rounded-full ${m.isActive ? "bg-green-400" : "bg-slate-600"}`} />
+            {/* Feature Count Banner */}
+            <div className="mt-8 bg-gradient-to-r from-purple-900/50 to-blue-900/50 border border-purple-500/30 rounded-2xl p-6">
+              <h3 className="text-xl font-bold mb-4">📋 Fitur Lengkap (65+ Perintah)</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                {[
+                  { icon: "🛡️", label: "Moderasi", count: 13 },
+                  { icon: "👥", label: "Grup", count: 16 },
+                  { icon: "ℹ️", label: "Info", count: 9 },
+                  { icon: "🎮", label: "Fun", count: 12 },
+                  { icon: "💰", label: "Ekonomi", count: 6 },
+                  { icon: "🔧", label: "Tools", count: 12 },
+                ].map((cat) => (
+                  <div key={cat.label} className="bg-white/10 rounded-xl p-3 text-center">
+                    <div className="text-2xl mb-1">{cat.icon}</div>
+                    <p className="font-bold text-lg">{cat.count}+</p>
+                    <p className="text-xs text-slate-400">{cat.label}</p>
                   </div>
                 ))}
               </div>
-            )}
+            </div>
           </div>
+        )}
 
-          {/* Log Aktivitas Terbaru */}
-          <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6">
-            <h2 className="mb-4 flex items-center gap-2 font-bold text-white">
-              <span>📋</span> Log Aktivitas
-            </h2>
-            {logs.length === 0 ? (
-              <div className="py-6 text-center text-slate-500">
-                <p className="text-3xl">📋</p>
-                <p className="mt-2 text-sm">Belum ada aktivitas</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {logs.slice(0, 10).map((log) => (
-                  <div key={log.id} className="rounded-xl bg-slate-900/50 p-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="flex items-center gap-1.5 font-mono text-xs font-semibold text-blue-300">
-                        <span>{commandIcons[log.command] || "🔧"}</span>
-                        /{log.command}
-                      </span>
-                      <span className="text-xs text-slate-500">
-                        {new Date(log.createdAt).toLocaleTimeString("id-ID")}
-                      </span>
-                    </div>
-                    {log.result && (
-                      <p className="mt-0.5 truncate text-xs text-slate-400">{log.result}</p>
-                    )}
-                  </div>
+        {/* ── COMMANDS TAB ─────────────────────────────────────── */}
+        {activeTab === "commands" && (
+          <div>
+            {/* Search & Filter */}
+            <div className="flex flex-col sm:flex-row gap-3 mb-6">
+              <input
+                type="text"
+                placeholder="🔍 Cari perintah..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="flex-1 bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <select
+                value={selectedCat}
+                onChange={(e) => setSelectedCat(e.target.value)}
+                className="bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all" className="bg-slate-800">Semua Kategori</option>
+                {CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat} className="bg-slate-800">{cat}</option>
                 ))}
-              </div>
-            )}
-          </div>
-        </div>
+              </select>
+            </div>
 
-        {/* Second Row */}
-        <div className="mt-6 grid gap-6 lg:grid-cols-3">
-          {/* Command Stats */}
-          <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6">
-            <h2 className="mb-4 flex items-center gap-2 font-bold text-white">
-              <span>📊</span> Statistik Perintah
-            </h2>
-            {commandStats.length === 0 ? (
-              <p className="text-sm text-slate-500">Belum ada perintah digunakan</p>
-            ) : (
-              <div className="space-y-3">
-                {commandStats.slice(0, 8).map((stat) => {
-                  const maxCount = Math.max(...commandStats.map((s) => s.count));
-                  const pct = Math.round((stat.count / maxCount) * 100);
-                  return (
-                    <div key={stat.command}>
-                      <div className="mb-1 flex items-center justify-between text-xs">
-                        <span className="text-slate-300">{commandIcons[stat.command] || "🔧"} /{stat.command}</span>
-                        <span className="font-semibold text-white">{stat.count}x</span>
+            <p className="text-slate-400 text-sm mb-4">
+              Menampilkan {filteredCommands.length} dari {COMMANDS.length} perintah
+            </p>
+
+            <div className="grid md:grid-cols-2 gap-3">
+              {filteredCommands.map((cmd) => (
+                <div
+                  key={cmd.cmd}
+                  className="bg-white/5 border border-white/10 rounded-xl p-4 hover:bg-white/10 transition group"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <code className="bg-blue-600/30 text-blue-300 px-2 py-0.5 rounded text-sm font-mono">
+                          {cmd.cmd}
+                        </code>
+                        {cmd.adminOnly && (
+                          <span className="bg-yellow-500/20 text-yellow-400 text-xs px-2 py-0.5 rounded-full">
+                            👑 Admin
+                          </span>
+                        )}
+                        <span className="text-xs text-slate-500">{cmd.cat}</span>
                       </div>
-                      <div className="h-1.5 w-full rounded-full bg-slate-700">
-                        <div className="h-1.5 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all" style={{ width: `${pct}%` }} />
-                      </div>
+                      <p className="text-slate-300 text-sm mt-1">{cmd.desc}</p>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Top Aktif */}
-          <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6">
-            <h2 className="mb-4 flex items-center gap-2 font-bold text-white">
-              <span>🏆</span> Top Member Aktif
-            </h2>
-            {topActiveUsers.length === 0 ? (
-              <p className="text-sm text-slate-500">Belum ada data</p>
-            ) : (
-              <div className="space-y-2">
-                {topActiveUsers.map((u, i) => {
-                  const info = memberMap[u.userId];
-                  const name = info?.firstName || info?.username || `User ${u.userId}`;
-                  const medals = ["🥇", "🥈", "🥉"];
-                  return (
-                    <div key={u.id} className="flex items-center justify-between rounded-xl bg-slate-900/50 px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">{medals[i] || `${i + 1}.`}</span>
-                        <span className="text-sm text-white truncate max-w-[120px]">{name}</span>
-                      </div>
-                      <span className="text-xs font-semibold text-blue-300">{u.messageCount} pesan</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Peringatan Terbaru */}
-          <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6">
-            <h2 className="mb-4 flex items-center gap-2 font-bold text-white">
-              <span>⚠️</span> Peringatan Terbaru
-            </h2>
-            {warnings.length === 0 ? (
-              <div className="py-4 text-center text-slate-500">
-                <p className="text-2xl">✅</p>
-                <p className="mt-1 text-sm">Tidak ada peringatan</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {warnings.slice(0, 8).map((w) => (
-                  <div key={w.id} className="rounded-xl bg-slate-900/50 p-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-orange-300">User {w.userId}</span>
-                      <span className="text-xs text-slate-500">{new Date(w.createdAt).toLocaleDateString("id-ID")}</span>
-                    </div>
-                    {w.reason && <p className="mt-0.5 truncate text-xs text-slate-400">{w.reason}</p>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Third Row */}
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
-          {/* Kata Terlarang */}
-          <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6">
-            <h2 className="mb-4 flex items-center gap-2 font-bold text-white">
-              <span>🚫</span> Kata Terlarang
-            </h2>
-            {banned.length === 0 ? (
-              <p className="text-sm text-slate-500">Tidak ada kata terlarang. Gunakan /addbanned di grup.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {banned.map((b) => (
-                  <span key={b.id} className="rounded-full border border-red-800/50 bg-red-900/30 px-3 py-1 text-xs text-red-300">
-                    {b.word}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Catatan Grup */}
-          <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6">
-            <h2 className="mb-4 flex items-center gap-2 font-bold text-white">
-              <span>📌</span> Catatan Grup
-            </h2>
-            {notes.length === 0 ? (
-              <p className="text-sm text-slate-500">Belum ada catatan. Gunakan /note [kunci] [isi] di grup.</p>
-            ) : (
-              <div className="space-y-2">
-                {notes.slice(0, 6).map((n) => (
-                  <div key={n.id} className="flex items-start gap-3 rounded-xl bg-slate-900/50 p-3">
-                    <span className="rounded bg-blue-900/50 px-2 py-0.5 text-xs font-mono font-semibold text-blue-300">{n.key}</span>
-                    <p className="text-xs text-slate-400 line-clamp-1">{n.content}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Pengaturan Grup */}
-        {groupSettingsList.length > 0 && (
-          <div className="mt-6 rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6">
-            <h2 className="mb-4 flex items-center gap-2 font-bold text-white">
-              <span>⚙️</span> Pengaturan Grup
-            </h2>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {groupSettingsList.map((s) => (
-                <div key={s.id} className="rounded-xl bg-slate-900/50 p-4">
-                  <p className="mb-2 font-mono text-xs text-slate-400">Chat ID: {s.chatId}</p>
-                  <div className="space-y-1 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Anti-Spam</span>
-                      <span className={s.antiSpamEnabled ? "text-green-400" : "text-red-400"}>{s.antiSpamEnabled ? "✅ Aktif" : "❌ Nonaktif"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Pesan Sambutan</span>
-                      <span className={s.welcomeEnabled ? "text-green-400" : "text-red-400"}>{s.welcomeEnabled ? "✅ Aktif" : "❌ Nonaktif"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Maks Peringatan</span>
-                      <span className="text-yellow-400">{s.maxWarnings}x</span>
-                    </div>
+                    <button
+                      onClick={() => copyCmd(cmd.cmd)}
+                      className="opacity-0 group-hover:opacity-100 transition text-slate-400 hover:text-white bg-white/10 rounded-lg p-1.5 flex-shrink-0"
+                      title="Copy"
+                    >
+                      {copied === cmd.cmd ? "✅" : "📋"}
+                    </button>
                   </div>
                 </div>
               ))}
@@ -366,100 +398,88 @@ export default async function DashboardPage() {
           </div>
         )}
 
-        {/* Commands Reference */}
-        <div className="mt-6 rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6">
-          <h2 className="mb-4 flex items-center gap-2 font-bold text-white">
-            <span>📚</span> Referensi Semua Perintah
-          </h2>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              { cmd: "/start", desc: "Mulai & tampilkan menu bantuan", icon: "▶️" },
-              { cmd: "/help", desc: "Tampilkan semua perintah", icon: "❓" },
-              { cmd: "/ping", desc: "Ukur latency bot", icon: "🏓" },
-              { cmd: "/uptime", desc: "Uptime server & memory", icon: "⏱️" },
-              { cmd: "/speedtest", desc: "Tes kecepatan internet server", icon: "🚀" },
-              { cmd: "/tagall [pesan]", desc: "Tag semua member (admin)", icon: "👥" },
-              { cmd: "/tagadmin", desc: "Tag semua admin grup", icon: "👑" },
-              { cmd: "/warn [alasan]", desc: "Beri peringatan (reply pesan)", icon: "⚠️" },
-              { cmd: "/warnings", desc: "Lihat peringatan user (reply)", icon: "📋" },
-              { cmd: "/kick", desc: "Kick member (reply pesan)", icon: "🚫" },
-              { cmd: "/mute [menit]", desc: "Mute member (reply pesan)", icon: "🔇" },
-              { cmd: "/unmute", desc: "Unmute member (reply pesan)", icon: "🔊" },
-              { cmd: "/promote", desc: "Jadikan admin (reply pesan)", icon: "⭐" },
-              { cmd: "/demote", desc: "Cabut status admin (reply pesan)", icon: "👤" },
-              { cmd: "/addbanned [kata]", desc: "Tambah kata terlarang", icon: "🚫" },
-              { cmd: "/delbanned [kata]", desc: "Hapus kata terlarang", icon: "✂️" },
-              { cmd: "/listbanned", desc: "Lihat daftar kata terlarang", icon: "📋" },
-              { cmd: "/antispam on|off", desc: "Toggle filter kata terlarang", icon: "🛡️" },
-              { cmd: "/note [kunci] [isi]", desc: "Simpan catatan grup", icon: "📌" },
-              { cmd: "/getnote [kunci]", desc: "Ambil catatan grup", icon: "📖" },
-              { cmd: "/notes", desc: "Lihat semua catatan", icon: "📚" },
-              { cmd: "/delnote [kunci]", desc: "Hapus catatan grup", icon: "🗑️" },
-              { cmd: "/stats", desc: "Statistik grup lengkap", icon: "📊" },
-              { cmd: "/topactive", desc: "Top 10 member paling aktif", icon: "🏆" },
-              { cmd: "/info", desc: "Info bot dan grup", icon: "ℹ️" },
-              { cmd: "/sticker [teks]", desc: "Buat stiker SVG dari teks", icon: "🎨" },
-              { cmd: "/qr [teks/URL]", desc: "Buat QR Code", icon: "🔲" },
-              { cmd: "/calc [ekspresi]", desc: "Kalkulator matematika", icon: "🧮" },
-              { cmd: "/currency [jml] [dari] [ke]", desc: "Konversi mata uang", icon: "💱" },
-              { cmd: "/translate [lang] [teks]", desc: "Terjemahkan teks", icon: "🌐" },
-              { cmd: "/weather [kota]", desc: "Info cuaca real-time", icon: "🌤️" },
-              { cmd: "/poll [Q]|[A]|[B]", desc: "Buat polling interaktif", icon: "📊" },
-              { cmd: "/setwelcome [pesan]", desc: "Atur pesan sambutan", icon: "👋" },
-              { cmd: "/welcome on|off", desc: "Toggle pesan sambutan", icon: "🎉" },
-              { cmd: "/setmaxwarn [1-10]", desc: "Atur maks peringatan", icon: "⚙️" },
-              { cmd: "/gift @user", desc: "Kirim gift Telegram Stars", icon: "🎁" },
-            ].map((c) => (
-              <div key={c.cmd} className="flex items-start gap-2 rounded-xl bg-slate-900/50 p-3">
-                <span className="text-sm">{c.icon}</span>
-                <div>
-                  <code className="text-xs font-mono font-semibold text-blue-300">{c.cmd}</code>
-                  <p className="text-xs text-slate-400">{c.desc}</p>
-                </div>
+        {/* ── MEMBERS TAB ──────────────────────────────────────── */}
+        {activeTab === "members" && (
+          <div>
+            <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
+              <div className="p-4 border-b border-white/10">
+                <h3 className="font-semibold">👥 Daftar Member</h3>
+                <p className="text-slate-400 text-sm">Data member berdasarkan XP tertinggi</p>
               </div>
-            ))}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10 text-slate-400">
+                      <th className="text-left px-4 py-3">Member</th>
+                      <th className="text-left px-4 py-3">Level</th>
+                      <th className="text-left px-4 py-3">XP</th>
+                      <th className="text-left px-4 py-3">Koin</th>
+                      <th className="text-left px-4 py-3">Pesan</th>
+                      <th className="text-left px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <tr key={i} className="border-b border-white/5">
+                          <td className="px-4 py-3" colSpan={6}>
+                            <div className="h-8 bg-white/5 rounded animate-pulse" />
+                          </td>
+                        </tr>
+                      ))
+                    ) : data?.topMembers.map((m) => (
+                      <tr key={m.id} className="border-b border-white/5 hover:bg-white/5 transition">
+                        <td className="px-4 py-3">
+                          <div>
+                            <p className="font-medium">{m.firstName ?? "Unknown"} {m.lastName ?? ""}</p>
+                            <p className="text-slate-500 text-xs">
+                              {m.username ? `@${m.username}` : `ID: ${m.userId}`}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full text-xs">
+                            Lvl {m.level ?? 1}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-blue-300">
+                          {(m.xpPoints ?? 0).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-yellow-300">
+                          🪙 {(m.coins ?? 0).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-slate-300">
+                          {(m.messageCount ?? 0).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3">
+                          {m.isBanned ? (
+                            <span className="text-red-400 text-xs">🚫 Banned</span>
+                          ) : m.warnings && m.warnings > 0 ? (
+                            <span className="text-yellow-400 text-xs">⚠️ {m.warnings} warn</span>
+                          ) : (
+                            <span className="text-green-400 text-xs">✅ Normal</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Webhook Setup */}
-        <div className="mt-6 rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6">
-          <h2 className="mb-4 flex items-center gap-2 font-bold text-white">
-            <span>🔗</span> Setup Webhook
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <p className="mb-2 text-sm text-slate-300">Jalankan setup webhook untuk menghubungkan bot ke server ini:</p>
-              <div className="rounded-xl bg-slate-900 p-4 font-mono text-sm text-slate-300">
-                <p className="text-slate-500"># Via browser:</p>
-                <p className="mt-1 text-green-400">GET /api/setup-webhook</p>
-                <p className="text-slate-400">?secret=YOUR_SETUP_SECRET</p>
-                <p className="mt-3 text-slate-500"># Via curl:</p>
-                <p className="mt-1 text-yellow-400">curl https://your-app.vercel.app</p>
-                <p className="text-yellow-400">/api/setup-webhook?secret=xxx</p>
-              </div>
-            </div>
-            <div>
-              <p className="mb-2 text-sm text-slate-300">Endpoints bot:</p>
-              <div className="space-y-2 rounded-xl bg-slate-900 p-4">
-                {[
-                  { method: "POST", path: "/api/bot", desc: "Webhook Telegram" },
-                  { method: "GET", path: "/api/setup-webhook", desc: "Setup webhook" },
-                  { method: "GET", path: "/api/health", desc: "Health check" },
-                  { method: "GET", path: "/dashboard", desc: "Dashboard monitoring" },
-                ].map((e) => (
-                  <div key={e.path} className="flex items-center gap-2 text-xs">
-                    <span className={`rounded px-1.5 py-0.5 font-mono font-bold ${e.method === "POST" ? "bg-blue-900/50 text-blue-300" : "bg-green-900/50 text-green-300"}`}>
-                      {e.method}
-                    </span>
-                    <code className="text-slate-300">{e.path}</code>
-                    <span className="text-slate-500">— {e.desc}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* Footer */}
+        <footer className="mt-12 text-center text-slate-600 text-sm">
+          <p>🤖 TeleBot Pro v2.0 • Built with Next.js + grammY + PostgreSQL</p>
+          <p className="mt-1">
+            <a href="https://github.com/cawikmas/bot" className="text-blue-600 hover:text-blue-400 transition">
+              GitHub Repository
+            </a>
+            {" "} • Update via GitHub Push → Auto Deploy di Vercel
+          </p>
+        </footer>
       </div>
-    </main>
+    </div>
   );
 }
