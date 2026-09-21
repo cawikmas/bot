@@ -417,7 +417,7 @@ function createBot(token: string) {
       `/addbanned [kata] \\- Tambah kata terlarang\n` +
       `/delbanned [kata] \\- Hapus kata terlarang\n` +
       `/listbanned \\- Lihat kata terlarang\n` +
-      `/antispam on|off \\- Aktifkan anti\\-spam\n\n` +
+      `/antispam on\\|off \\- Aktifkan anti\\-spam\n\n` +
       `*📌 Catatan Grup:*\n` +
       `/note [kunci] [isi] \\- Simpan catatan\n` +
       `/getnote [kunci] \\- Ambil catatan\n` +
@@ -438,10 +438,10 @@ function createBot(token: string) {
       `/weather [kota] \\- Cuaca kota\n\n` +
       `*🎨 Kreatif:*\n` +
       `/sticker [teks] \\- Buat stiker teks\n` +
-      `/poll [pertanyaan]|[opsi1]|[opsi2] \\- Buat polling\n\n` +
+      `/poll [pertanyaan]\\|[opsi1]\\|[opsi2] \\- Buat polling\n\n` +
       `*⚙️ Pengaturan:*\n` +
       `/setwelcome [pesan] \\- Atur pesan sambutan\n` +
-      `/welcome on|off \\- Toggle pesan sambutan\n` +
+      `/welcome on\\|off \\- Toggle pesan sambutan\n` +
       `/setmaxwarn [angka] \\- Atur maks peringatan\n`;
 
     await ctx.reply(helpText, { parse_mode: "MarkdownV2" });
