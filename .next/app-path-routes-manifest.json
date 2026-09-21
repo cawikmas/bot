@@ -1,0 +1,9 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/bot/route": "/api/bot",
+  "/api/health/route": "/api/health",
+  "/api/setup-webhook/route": "/api/setup-webhook",
+  "/dashboard/page": "/dashboard",
+  "/page": "/"
+}

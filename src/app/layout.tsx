@@ -1,17 +1,20 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "TeleBot Pro — Bot Telegram Multi-Fitur",
+  title: "🤖 TeleBot Pro — Bot Telegram Multi-Fitur",
   description:
-    "Bot Telegram multi-fitur: Tag All Member, Ping Tool, Speed Test, Stiker Otomatis & Gift. Deploy di Vercel & GitHub.",
+    "Bot Telegram lengkap dengan 23+ fitur: manajemen grup, anti-spam, kalkulator, cuaca, terjemahan, QR code, dan banyak lagi. Deploy ke Vercel via GitHub.",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html lang="id">
-      <body className="bg-gray-950 text-white antialiased">{children}</body>
+      <body className="antialiased">{children}</body>
     </html>
   );
 }
