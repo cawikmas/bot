@@ -216,7 +216,6 @@ export const bankAccounts = pgTable("bank_accounts", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
-```[cite: 1]
 
 export type GroupMember = typeof groupMembers.$inferSelect;
 export type GroupSettings = typeof groupSettings.$inferSelect;
@@ -229,4 +228,3 @@ export type CustomCommand = typeof customCommands.$inferSelect;
 export type Giveaway = typeof giveaways.$inferSelect;
 export type Quote = typeof quotes.$inferSelect;
 export type BankAccount = typeof bankAccounts.$inferSelect;
-```[cite: 1]
