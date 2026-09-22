@@ -4,7 +4,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { todayKey, xpToLevel } from "./helpers";
 import { Context } from "grammy";
 
-// ─── Track Member ─────────────────────────────────────────────────────────────
+// ─── Track Member ─────────────────────────────────────────────────────────
 export async function trackMember(ctx: Context) {
   const user = ctx.from;
   const chat = ctx.chat;
@@ -33,7 +33,7 @@ export async function trackMember(ctx: Context) {
         messageCount: 1,
         xpPoints: xpGain,
         level: 1,
-        coins: 1,
+        coins: 10,
         lastSeenAt: new Date(),
       });
     } else {
@@ -59,10 +59,19 @@ export async function trackMember(ctx: Context) {
       if (leveledUp) {
         const name = user.first_name || user.username || "Member";
         try {
-          await ctx.reply(
-            `🎉 Selamat *${name}*! Kamu naik ke *Level ${newLevel}*! ⬆️`,
-            { parse_mode: "Markdown" }
-          );
+          // Check settings
+          const settings = await db
+            .select({ levelUpEnabled: groupSettings.levelUpEnabled })
+            .from(groupSettings)
+            .where(eq(groupSettings.chatId, chatId))
+            .limit(1);
+
+          if (settings[0]?.levelUpEnabled !== false) {
+            await ctx.reply(
+              `🎉 Selamat *${name}*! Kamu naik ke *Level ${newLevel}*! ⬆️\n\nTerus aktif untuk naik level lebih tinggi! 💪`,
+              { parse_mode: "Markdown" }
+            );
+          }
         } catch {
           // ignore
         }
@@ -108,7 +117,7 @@ export async function trackMember(ctx: Context) {
   }
 }
 
-// ─── Get Members ─────────────────────────────────────────────────────────────
+// ─── Get Members ─────────────────────────────────────────────────────────
 export async function getGroupMembers(chatId: string) {
   return db
     .select()
@@ -116,7 +125,7 @@ export async function getGroupMembers(chatId: string) {
     .where(and(eq(groupMembers.chatId, chatId), eq(groupMembers.isBanned, false)));
 }
 
-// ─── Get Member ──────────────────────────────────────────────────────────────
+// ─── Get Member ──────────────────────────────────────────────────────────
 export async function getMember(chatId: string, userId: string) {
   const rows = await db
     .select()
@@ -126,7 +135,7 @@ export async function getMember(chatId: string, userId: string) {
   return rows[0] ?? null;
 }
 
-// ─── Get or Create Settings ───────────────────────────────────────────────────
+// ─── Get or Create Settings ───────────────────────────────────────────────
 export async function getOrCreateSettings(chatId: string, chatTitle?: string) {
   const existing = await db
     .select()

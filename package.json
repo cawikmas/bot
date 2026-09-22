@@ -9,17 +9,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@types/axios": "^0.9.36",
     "axios": "^1.20.0",
-    "date-fns": "^4.4.0",
     "dotenv": "17.3.1",
     "drizzle-orm": "0.45.2",
     "grammy": "^1.46.0",
-    "grammy-inline-menu": "^9.3.0",
     "next": "16.2.6",
     "pg": "8.20.0",
     "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "zod": "^4.6.5"
+    "react-dom": "19.2.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.1.17",

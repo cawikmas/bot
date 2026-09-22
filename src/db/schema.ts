@@ -8,6 +8,7 @@ import {
   jsonb,
   serial,
   varchar,
+  real,
 } from "drizzle-orm/pg-core";
 
 // ─── Group Members ───────────────────────────────────────────────────────────
@@ -31,6 +32,15 @@ export const groupMembers = pgTable("group_members", {
   coins: integer("coins").default(0),
   streak: integer("streak").default(0),
   lastDailyAt: timestamp("last_daily_at"),
+  // New fields
+  bio: text("bio"),
+  totalGameWins: integer("total_game_wins").default(0),
+  totalGameLosses: integer("total_game_losses").default(0),
+  reputation: integer("reputation").default(0),
+  lastRepAt: timestamp("last_rep_at"),
+  achievements: text("achievements").array().default([]),
+  customTitle: text("custom_title"),
+  isSilenced: boolean("is_silenced").default(false),
 });
 
 // ─── Group Settings ───────────────────────────────────────────────────────────
@@ -54,6 +64,15 @@ export const groupSettings = pgTable("group_settings", {
   slowModeSeconds: integer("slow_mode_seconds").default(0),
   maxMessageLength: integer("max_message_length").default(0),
   logChannelId: text("log_channel_id"),
+  // New settings
+  antiFloodEnabled: boolean("anti_flood_enabled").default(false),
+  antiFloodLimit: integer("anti_flood_limit").default(5),
+  antiFloodSeconds: integer("anti_flood_seconds").default(10),
+  nsfw: boolean("nsfw").default(false),
+  groupRules: text("group_rules"),
+  birthdayEnabled: boolean("birthday_enabled").default(true),
+  levelUpEnabled: boolean("level_up_enabled").default(true),
+  repCooldownHours: integer("rep_cooldown_hours").default(24),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -203,6 +222,52 @@ export const feedback = pgTable("feedback", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// ─── Birthdays ────────────────────────────────────────────────────────────────
+export const birthdays = pgTable("birthdays", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  userId: text("user_id").notNull(),
+  username: text("username"),
+  firstName: text("first_name"),
+  birthDay: integer("birth_day").notNull(),
+  birthMonth: integer("birth_month").notNull(),
+  birthYear: integer("birth_year"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ─── Anti-Flood Tracker ───────────────────────────────────────────────────────
+export const floodTracker = pgTable("flood_tracker", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  userId: text("user_id").notNull(),
+  messageCount: integer("message_count").default(0),
+  windowStart: timestamp("window_start").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ─── Word Games ───────────────────────────────────────────────────────────────
+export const wordGames = pgTable("word_games", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  gameType: varchar("game_type", { length: 30 }).notNull(),
+  currentWord: text("current_word"),
+  currentUserId: text("current_user_id"),
+  isActive: boolean("is_active").default(true),
+  usedWords: text("used_words").array().default([]),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ─── Marriage System ──────────────────────────────────────────────────────────
+export const marriages = pgTable("marriages", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  userId1: text("user_id_1").notNull(),
+  userId2: text("user_id_2").notNull(),
+  marriedAt: timestamp("married_at").defaultNow(),
+  isActive: boolean("is_active").default(true),
+});
+
 // ─── Bank / Investment ────────────────────────────────────────────────────────
 export const bankAccounts = pgTable("bank_accounts", {
   id: serial("id").primaryKey(),
@@ -217,6 +282,41 @@ export const bankAccounts = pgTable("bank_accounts", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// ─── Slots / Casino ───────────────────────────────────────────────────────────
+export const casinoStats = pgTable("casino_stats", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  userId: text("user_id").notNull(),
+  totalBet: integer("total_bet").default(0),
+  totalWon: integer("total_won").default(0),
+  totalLost: integer("total_lost").default(0),
+  jackpotWins: integer("jackpot_wins").default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ─── Filters (keyword auto-reply) ─────────────────────────────────────────────
+export const filters = pgTable("filters", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  keyword: text("keyword").notNull(),
+  response: text("response").notNull(),
+  isRegex: boolean("is_regex").default(false),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ─── Raffle Tickets ───────────────────────────────────────────────────────────
+export const raffleTickets = pgTable("raffle_tickets", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  userId: text("user_id").notNull(),
+  username: text("username"),
+  firstName: text("first_name"),
+  ticketCount: integer("ticket_count").default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 export type GroupMember = typeof groupMembers.$inferSelect;
 export type GroupSettings = typeof groupSettings.$inferSelect;
 export type Note = typeof notes.$inferSelect;
@@ -224,7 +324,13 @@ export type Warn = typeof warns.$inferSelect;
 export type Poll = typeof polls.$inferSelect;
 export type Reminder = typeof reminders.$inferSelect;
 export type AfkUser = typeof afkUsers.$inferSelect;
+export type BotStat = typeof botStats.$inferSelect;
+export type Broadcast = typeof broadcasts.$inferSelect;
 export type CustomCommand = typeof customCommands.$inferSelect;
 export type Giveaway = typeof giveaways.$inferSelect;
 export type Quote = typeof quotes.$inferSelect;
+export type Birthday = typeof birthdays.$inferSelect;
+export type WordGame = typeof wordGames.$inferSelect;
+export type Marriage = typeof marriages.$inferSelect;
 export type BankAccount = typeof bankAccounts.$inferSelect;
+export type Filter = typeof filters.$inferSelect;

@@ -7,8 +7,8 @@ import { registerEconomyCommands } from "./features/economy";
 import { registerToolsCommands } from "./features/tools";
 import { registerGroupCommands } from "./features/group";
 import { db } from "@/db";
-import { botStats } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { botStats, groupSettings, groupMembers } from "@/db/schema";
+import { eq, and } from "drizzle-orm";
 import { todayKey } from "./helpers";
 
 const token = process.env.TELEGRAM_BOT_TOKEN || "placeholder";
@@ -24,7 +24,7 @@ if (process.env.NODE_ENV !== "production") {
   globalForBot.__telebot = bot;
 }
 
-// ─── Track all messages ────────────────────────────────────────────────────
+// ─── Track all messages ───────────────────────────────────────────────
 bot.on("message", async (ctx, next) => {
   try {
     await trackMember(ctx);
@@ -32,7 +32,7 @@ bot.on("message", async (ctx, next) => {
   return next();
 });
 
-// ─── Track command usage ───────────────────────────────────────────────────
+// ─── Track command usage ──────────────────────────────────────────────
 bot.on("message:text", async (ctx, next) => {
   if (ctx.message.text?.startsWith("/")) {
     const today = todayKey();
@@ -47,7 +47,7 @@ bot.on("message:text", async (ctx, next) => {
   return next();
 });
 
-// ─── Register all feature modules ─────────────────────────────────────────
+// ─── Register all feature modules ────────────────────────────────────
 registerModerationCommands(bot);
 registerInfoCommands(bot);
 registerFunCommands(bot);
@@ -55,10 +55,7 @@ registerEconomyCommands(bot);
 registerToolsCommands(bot);
 registerGroupCommands(bot);
 
-// ─── Anti-link middleware ──────────────────────────────────────────────────
-import { db as dbInstance } from "@/db";
-import { groupSettings } from "@/db/schema";
-
+// ─── Anti-link middleware ─────────────────────────────────────────────
 bot.on("message:text", async (ctx, next) => {
   if (ctx.chat.type === "private") return next();
 
@@ -69,7 +66,7 @@ bot.on("message:text", async (ctx, next) => {
   if (!urlPattern.test(text)) return next();
 
   try {
-    const settings = await dbInstance.select().from(groupSettings)
+    const settings = await db.select().from(groupSettings)
       .where(eq(groupSettings.chatId, chatId)).limit(1);
 
     if (settings[0]?.antiLinkEnabled) {
@@ -88,10 +85,37 @@ bot.on("message:text", async (ctx, next) => {
   return next();
 });
 
-// ─── Error handler ────────────────────────────────────────────────────────
+// ─── Anti bad word middleware ─────────────────────────────────────────
+bot.on("message:text", async (ctx, next) => {
+  if (ctx.chat.type === "private") return next();
+  const chatId = String(ctx.chat.id);
+  const text = (ctx.message.text || "").toLowerCase();
+
+  try {
+    const settings = await db.select().from(groupSettings)
+      .where(eq(groupSettings.chatId, chatId)).limit(1);
+
+    if (settings[0]?.antiBadWordEnabled && settings[0]?.badWords?.length) {
+      const { isAdmin } = await import("./helpers");
+      if (await isAdmin(ctx)) return next();
+
+      for (const word of settings[0].badWords) {
+        if (text.includes(word.toLowerCase())) {
+          await ctx.deleteMessage();
+          await ctx.reply(`🚫 Kata yang tidak pantas terdeteksi!`, { parse_mode: "Markdown" });
+          return;
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  return next();
+});
+
+// ─── Error handler ────────────────────────────────────────────────────
 bot.catch((err) => {
   console.error("Bot error:", err);
 });
 
-// ─── Export webhook handler ───────────────────────────────────────────────
+// ─── Export webhook handler ───────────────────────────────────────────
 export const handleUpdate = webhookCallback(bot, "std/http");

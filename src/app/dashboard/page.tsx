@@ -1,214 +1,213 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 
-interface Member {
-  id: number;
-  chatId: string;
-  userId: string;
-  username: string | null;
-  firstName: string | null;
-  lastName: string | null;
-  messageCount: number | null;
-  xpPoints: number | null;
-  level: number | null;
-  coins: number | null;
-  warnings: number | null;
-  isBanned: boolean | null;
-  lastSeenAt: string | null;
-}
-
-interface StatDay {
+interface BotStat {
   date: string;
-  totalMessages: number | null;
-  totalCommands: number | null;
+  totalMessages: number;
+  totalCommands: number;
 }
 
 interface DashboardData {
-  recentStats: StatDay[];
+  recentStats: BotStat[];
   totalUsers: number;
   totalGroups: number;
-  topMembers: Member[];
-  topCoins: Member[];
+  botVersion: string;
+  uptime: number;
 }
 
-const COMMANDS = [
-  // Moderasi
-  { cmd: "/ban", desc: "Ban member", cat: "🛡️ Moderasi", adminOnly: true },
-  { cmd: "/unban", desc: "Unban member", cat: "🛡️ Moderasi", adminOnly: true },
-  { cmd: "/kick", desc: "Kick member", cat: "🛡️ Moderasi", adminOnly: true },
-  { cmd: "/mute [waktu]", desc: "Mute member (1m/1h/1d)", cat: "🛡️ Moderasi", adminOnly: true },
-  { cmd: "/unmute", desc: "Unmute member", cat: "🛡️ Moderasi", adminOnly: true },
-  { cmd: "/warn", desc: "Beri peringatan", cat: "🛡️ Moderasi", adminOnly: true },
-  { cmd: "/unwarn", desc: "Hapus peringatan terbaru", cat: "🛡️ Moderasi", adminOnly: true },
-  { cmd: "/warns", desc: "Lihat daftar peringatan", cat: "🛡️ Moderasi", adminOnly: false },
-  { cmd: "/purge", desc: "Hapus pesan massal", cat: "🛡️ Moderasi", adminOnly: true },
-  { cmd: "/pin", desc: "Pin pesan", cat: "🛡️ Moderasi", adminOnly: true },
-  { cmd: "/unpin", desc: "Unpin semua pesan", cat: "🛡️ Moderasi", adminOnly: true },
-  { cmd: "/promote", desc: "Jadikan admin", cat: "🛡️ Moderasi", adminOnly: true },
-  { cmd: "/demote", desc: "Turunkan admin", cat: "🛡️ Moderasi", adminOnly: true },
-  // Grup
-  { cmd: "/tagall", desc: "Tag semua member aktif", cat: "👥 Grup", adminOnly: true },
-  { cmd: "/tagadmin", desc: "Tag semua admin", cat: "👥 Grup", adminOnly: false },
-  { cmd: "/ping", desc: "Cek latency bot", cat: "👥 Grup", adminOnly: false },
-  { cmd: "/speedtest", desc: "Tes kecepatan server", cat: "👥 Grup", adminOnly: false },
-  { cmd: "/welcome", desc: "Lihat pesan welcome", cat: "👥 Grup", adminOnly: false },
-  { cmd: "/setwelcome [pesan]", desc: "Atur pesan welcome", cat: "👥 Grup", adminOnly: true },
-  { cmd: "/setgoodbye [pesan]", desc: "Atur pesan goodbye", cat: "👥 Grup", adminOnly: true },
-  { cmd: "/rules", desc: "Tampilkan peraturan grup", cat: "👥 Grup", adminOnly: false },
-  { cmd: "/antilink", desc: "Toggle anti-link", cat: "👥 Grup", adminOnly: true },
-  { cmd: "/antispam", desc: "Toggle anti-spam", cat: "👥 Grup", adminOnly: true },
-  { cmd: "/settings", desc: "Lihat pengaturan grup", cat: "👥 Grup", adminOnly: true },
-  { cmd: "/poll Q | A | B", desc: "Buat polling", cat: "👥 Grup", adminOnly: false },
-  { cmd: "/giveaway H|M|N", desc: "Buat giveaway", cat: "👥 Grup", adminOnly: true },
-  { cmd: "/joingiveaway [ID]", desc: "Ikut giveaway", cat: "👥 Grup", adminOnly: false },
-  { cmd: "/endgiveaway [ID]", desc: "Akhiri giveaway", cat: "👥 Grup", adminOnly: true },
-  { cmd: "/sticker [teks]", desc: "Buat stiker SVG", cat: "👥 Grup", adminOnly: false },
-  { cmd: "/broadcast [pesan]", desc: "Broadcast ke grup", cat: "👥 Grup", adminOnly: true },
+const FEATURES = [
+  // Moderation
+  { cmd: "/ban", desc: "Ban member dari grup", cat: "🛡️ Moderasi" },
+  { cmd: "/unban", desc: "Unban member", cat: "🛡️ Moderasi" },
+  { cmd: "/kick", desc: "Kick member dari grup", cat: "🛡️ Moderasi" },
+  { cmd: "/mute [durasi]", desc: "Mute member (mis: 1h, 30m)", cat: "🛡️ Moderasi" },
+  { cmd: "/unmute", desc: "Unmute member", cat: "🛡️ Moderasi" },
+  { cmd: "/warn", desc: "Beri peringatan ke member", cat: "🛡️ Moderasi" },
+  { cmd: "/warns", desc: "Lihat daftar peringatan", cat: "🛡️ Moderasi" },
+  { cmd: "/unwarn", desc: "Hapus 1 peringatan", cat: "🛡️ Moderasi" },
+  { cmd: "/purge", desc: "Hapus pesan massal", cat: "🛡️ Moderasi" },
+  { cmd: "/pin", desc: "Pin pesan", cat: "🛡️ Moderasi" },
+  { cmd: "/unpin", desc: "Unpin semua pesan", cat: "🛡️ Moderasi" },
+  { cmd: "/promote", desc: "Jadikan member sebagai admin", cat: "🛡️ Moderasi" },
+  { cmd: "/demote", desc: "Turunkan admin", cat: "🛡️ Moderasi" },
+  { cmd: "/slowmode", desc: "Atur slow mode grup", cat: "🛡️ Moderasi" },
+  { cmd: "/silence", desc: "Silence member (hapus pesan otomatis)", cat: "🛡️ Moderasi" },
+  { cmd: "/unsilence", desc: "Buka silence member", cat: "🛡️ Moderasi" },
+  { cmd: "/settitle", desc: "Atur custom title admin", cat: "🛡️ Moderasi" },
+  // Group
+  { cmd: "/tagall", desc: "Tag semua member aktif", cat: "👥 Grup" },
+  { cmd: "/tagadmin", desc: "Tag semua admin grup", cat: "👥 Grup" },
+  { cmd: "/setwelcome", desc: "Atur pesan selamat datang", cat: "👥 Grup" },
+  { cmd: "/setgoodbye", desc: "Atur pesan perpisahan", cat: "👥 Grup" },
+  { cmd: "/setrules", desc: "Atur peraturan grup", cat: "👥 Grup" },
+  { cmd: "/rules", desc: "Tampilkan peraturan grup", cat: "👥 Grup" },
+  { cmd: "/settings", desc: "Lihat semua pengaturan grup", cat: "👥 Grup" },
+  { cmd: "/antilink", desc: "Toggle anti-link otomatis", cat: "👥 Grup" },
+  { cmd: "/antispam", desc: "Toggle anti-spam", cat: "👥 Grup" },
+  { cmd: "/antiflood", desc: "Toggle anti-flood", cat: "👥 Grup" },
+  { cmd: "/setlang", desc: "Ubah bahasa bot", cat: "👥 Grup" },
+  { cmd: "/addcmd", desc: "Tambah custom command", cat: "👥 Grup" },
+  { cmd: "/delcmd", desc: "Hapus custom command", cat: "👥 Grup" },
+  { cmd: "/listcmds", desc: "Lihat semua custom command", cat: "👥 Grup" },
+  { cmd: "/addfilter", desc: "Tambah filter auto-reply", cat: "👥 Grup" },
+  { cmd: "/delfilter", desc: "Hapus filter", cat: "👥 Grup" },
+  { cmd: "/listfilters", desc: "Lihat semua filter", cat: "👥 Grup" },
+  { cmd: "/giveaway", desc: "Buat giveaway hadiah", cat: "👥 Grup" },
+  { cmd: "/joingiveaway", desc: "Ikut giveaway", cat: "👥 Grup" },
+  { cmd: "/endgiveaway", desc: "Akhiri & undi pemenang", cat: "👥 Grup" },
+  { cmd: "/raffle", desc: "Undi pemenang raffle", cat: "👥 Grup" },
+  { cmd: "/joinraffle", desc: "Ikut raffle", cat: "👥 Grup" },
+  { cmd: "/poll", desc: "Buat polling Telegram", cat: "👥 Grup" },
+  { cmd: "/sticker", desc: "Buat stiker SVG dari teks", cat: "👥 Grup" },
+  { cmd: "/broadcast", desc: "Broadcast pesan ke grup", cat: "👥 Grup" },
   // Info
-  { cmd: "/start", desc: "Mulai bot", cat: "ℹ️ Info", adminOnly: false },
-  { cmd: "/help", desc: "Daftar semua perintah", cat: "ℹ️ Info", adminOnly: false },
-  { cmd: "/info", desc: "Info bot & grup", cat: "ℹ️ Info", adminOnly: false },
-  { cmd: "/id", desc: "Tampilkan ID", cat: "ℹ️ Info", adminOnly: false },
-  { cmd: "/whois", desc: "Info detail member", cat: "ℹ️ Info", adminOnly: false },
-  { cmd: "/profile", desc: "Profil kamu", cat: "ℹ️ Info", adminOnly: false },
-  { cmd: "/rank", desc: "Rank XP kamu", cat: "ℹ️ Info", adminOnly: false },
-  { cmd: "/leaderboard", desc: "Top 10 member aktif", cat: "ℹ️ Info", adminOnly: false },
-  { cmd: "/stats", desc: "Statistik bot", cat: "ℹ️ Info", adminOnly: false },
+  { cmd: "/start", desc: "Mulai bot", cat: "ℹ️ Info" },
+  { cmd: "/help", desc: "Bantuan & daftar perintah (4 halaman)", cat: "ℹ️ Info" },
+  { cmd: "/info", desc: "Info bot dan grup", cat: "ℹ️ Info" },
+  { cmd: "/id", desc: "Lihat ID chat/user", cat: "ℹ️ Info" },
+  { cmd: "/whois", desc: "Info lengkap member", cat: "ℹ️ Info" },
+  { cmd: "/profile", desc: "Lihat profil sendiri", cat: "ℹ️ Info" },
+  { cmd: "/rank", desc: "Lihat peringkat XP", cat: "ℹ️ Info" },
+  { cmd: "/leaderboard", desc: "Top 10 member aktif", cat: "ℹ️ Info" },
+  { cmd: "/stats", desc: "Statistik penggunaan bot", cat: "ℹ️ Info" },
+  { cmd: "/setbirthday", desc: "Daftarkan ulang tahun", cat: "ℹ️ Info" },
+  { cmd: "/birthday", desc: "Cek ulang tahun hari ini", cat: "ℹ️ Info" },
+  { cmd: "/zodiac", desc: "Cek zodiak berdasar tanggal lahir", cat: "ℹ️ Info" },
+  // Economy
+  { cmd: "/daily", desc: "Klaim koin harian + streak bonus", cat: "💰 Ekonomi" },
+  { cmd: "/balance", desc: "Cek saldo koin & bank", cat: "💰 Ekonomi" },
+  { cmd: "/transfer", desc: "Transfer koin ke member", cat: "💰 Ekonomi" },
+  { cmd: "/give", desc: "Beri koin ke member", cat: "💰 Ekonomi" },
+  { cmd: "/richlist", desc: "Top 10 koin terkaya", cat: "💰 Ekonomi" },
+  { cmd: "/gamble", desc: "Judi koin dengan dadu", cat: "💰 Ekonomi" },
+  { cmd: "/work", desc: "Kerja untuk dapat koin", cat: "💰 Ekonomi" },
+  { cmd: "/deposit", desc: "Simpan koin ke bank", cat: "💰 Ekonomi" },
+  { cmd: "/withdraw", desc: "Ambil koin dari bank", cat: "💰 Ekonomi" },
+  { cmd: "/invest", desc: "Investasikan koin (10-50% return)", cat: "💰 Ekonomi" },
+  { cmd: "/claiminvest", desc: "Claim hasil investasi", cat: "💰 Ekonomi" },
+  { cmd: "/rep", desc: "Beri reputasi ke member", cat: "💰 Ekonomi" },
+  { cmd: "/topreputation", desc: "Top reputasi grup", cat: "💰 Ekonomi" },
   // Fun
-  { cmd: "/dice", desc: "Lempar dadu 🎲", cat: "🎮 Fun", adminOnly: false },
-  { cmd: "/flip", desc: "Lempar koin 🪙", cat: "🎮 Fun", adminOnly: false },
-  { cmd: "/8ball [pertanyaan]", desc: "Magic 8-ball 🎱", cat: "🎮 Fun", adminOnly: false },
-  { cmd: "/rps [batu|kertas|gunting]", desc: "Suit", cat: "🎮 Fun", adminOnly: false },
-  { cmd: "/joke", desc: "Humor acak 😄", cat: "🎮 Fun", adminOnly: false },
-  { cmd: "/quote", desc: "Quote inspirasi", cat: "🎮 Fun", adminOnly: false },
-  { cmd: "/savequote", desc: "Simpan quote member", cat: "🎮 Fun", adminOnly: false },
-  { cmd: "/randomquote", desc: "Quote random tersimpan", cat: "🎮 Fun", adminOnly: false },
-  { cmd: "/trivia", desc: "Pertanyaan trivia", cat: "🎮 Fun", adminOnly: false },
-  { cmd: "/math", desc: "Soal matematika", cat: "🎮 Fun", adminOnly: false },
-  { cmd: "/choose A, B, C", desc: "Pilihan acak", cat: "🎮 Fun", adminOnly: false },
-  { cmd: "/reverse [teks]", desc: "Balik teks", cat: "🎮 Fun", adminOnly: false },
-  { cmd: "/mock [teks]", desc: "Mock teks", cat: "🎮 Fun", adminOnly: false },
-  { cmd: "/aesthetic [teks]", desc: "Teks estetik", cat: "🎮 Fun", adminOnly: false },
-  // Ekonomi
-  { cmd: "/daily", desc: "Klaim hadiah harian 🎁", cat: "💰 Ekonomi", adminOnly: false },
-  { cmd: "/balance", desc: "Cek saldo koin", cat: "💰 Ekonomi", adminOnly: false },
-  { cmd: "/transfer [jml]", desc: "Transfer koin ke member", cat: "💰 Ekonomi", adminOnly: false },
-  { cmd: "/give [jml]", desc: "Beri koin ke member", cat: "💰 Ekonomi", adminOnly: false },
-  { cmd: "/richlist", desc: "Top 10 terkaya", cat: "💰 Ekonomi", adminOnly: false },
-  { cmd: "/gamble [jml]", desc: "Judi koin 🎰", cat: "💰 Ekonomi", adminOnly: false },
+  { cmd: "/dice", desc: "Lempar dadu", cat: "🎮 Fun" },
+  { cmd: "/flip", desc: "Lempar koin (heads/tails)", cat: "🎮 Fun" },
+  { cmd: "/8ball", desc: "Magic 8-ball jawab pertanyaan", cat: "🎮 Fun" },
+  { cmd: "/rps", desc: "Suit (batu kertas gunting)", cat: "🎮 Fun" },
+  { cmd: "/slots", desc: "Mesin slot kasino", cat: "🎮 Fun" },
+  { cmd: "/gamestats", desc: "Statistik game member", cat: "🎮 Fun" },
+  { cmd: "/marry", desc: "Menikah dengan member", cat: "🎮 Fun" },
+  { cmd: "/divorce", desc: "Cerai dari pasangan", cat: "🎮 Fun" },
+  { cmd: "/partner", desc: "Lihat pasangan saat ini", cat: "🎮 Fun" },
+  { cmd: "/wordchain", desc: "Mulai permainan word chain", cat: "🎮 Fun" },
+  { cmd: "/stopwordchain", desc: "Hentikan word chain", cat: "🎮 Fun" },
+  { cmd: "/fortune", desc: "Ramalan nasib hari ini", cat: "🎮 Fun" },
+  { cmd: "/tebak", desc: "Tebak angka (1-100)", cat: "🎮 Fun" },
+  { cmd: "/joke", desc: "Humor acak", cat: "🎮 Fun" },
+  { cmd: "/quote", desc: "Quote inspirasi", cat: "🎮 Fun" },
+  { cmd: "/savequote", desc: "Simpan quote member", cat: "🎮 Fun" },
+  { cmd: "/randomquote", desc: "Quote tersimpan acak", cat: "🎮 Fun" },
+  { cmd: "/trivia", desc: "Pertanyaan trivia", cat: "🎮 Fun" },
+  { cmd: "/math", desc: "Soal matematika acak", cat: "🎮 Fun" },
+  { cmd: "/choose", desc: "Pilih acak dari daftar", cat: "🎮 Fun" },
+  { cmd: "/reverse", desc: "Balik teks", cat: "🎮 Fun" },
+  { cmd: "/mock", desc: "Teks mocking SpongeBob", cat: "🎮 Fun" },
+  { cmd: "/aesthetic", desc: "Teks estetik spasi", cat: "🎮 Fun" },
+  { cmd: "/encode", desc: "Encode teks ke Base64", cat: "🎮 Fun" },
+  { cmd: "/decode", desc: "Decode Base64 ke teks", cat: "🎮 Fun" },
   // Tools
-  { cmd: "/calc [ekspresi]", desc: "Kalkulator", cat: "🔧 Tools", adminOnly: false },
-  { cmd: "/convert [val] [dari] [ke]", desc: "Konversi satuan", cat: "🔧 Tools", adminOnly: false },
-  { cmd: "/note [kunci] [isi]", desc: "Simpan catatan", cat: "🔧 Tools", adminOnly: true },
-  { cmd: "/notes", desc: "Lihat semua catatan", cat: "🔧 Tools", adminOnly: false },
-  { cmd: "/getnote [kunci]", desc: "Ambil catatan", cat: "🔧 Tools", adminOnly: false },
-  { cmd: "/delnote [kunci]", desc: "Hapus catatan", cat: "🔧 Tools", adminOnly: true },
-  { cmd: "#kunci", desc: "Tampilkan catatan otomatis", cat: "🔧 Tools", adminOnly: false },
-  { cmd: "/weather [kota]", desc: "Cuaca real-time", cat: "🔧 Tools", adminOnly: false },
-  { cmd: "/translate [lang] [teks]", desc: "Terjemah teks", cat: "🔧 Tools", adminOnly: false },
-  { cmd: "/qr [teks/url]", desc: "Buat QR code", cat: "🔧 Tools", adminOnly: false },
-  { cmd: "/tinyurl [url]", desc: "Persingkat URL", cat: "🔧 Tools", adminOnly: false },
-  { cmd: "/define [kata]", desc: "Definisi kata (EN)", cat: "🔧 Tools", adminOnly: false },
-  { cmd: "/afk [alasan]", desc: "Set status AFK", cat: "🔧 Tools", adminOnly: false },
-  { cmd: "/ascii [teks]", desc: "Teks ASCII", cat: "🔧 Tools", adminOnly: false },
-  { cmd: "/feedback [pesan]", desc: "Kirim feedback", cat: "🔧 Tools", adminOnly: false },
+  { cmd: "/calc", desc: "Kalkulator ekspresi matematika", cat: "🔧 Tools" },
+  { cmd: "/convert", desc: "Konversi satuan (panjang, berat, suhu)", cat: "🔧 Tools" },
+  { cmd: "/tinyurl", desc: "Persingkat URL", cat: "🔧 Tools" },
+  { cmd: "/weather", desc: "Cuaca kota manapun di dunia", cat: "🔧 Tools" },
+  { cmd: "/translate", desc: "Terjemahkan teks ke bahasa lain", cat: "🔧 Tools" },
+  { cmd: "/qr", desc: "Buat QR code dari teks/URL", cat: "🔧 Tools" },
+  { cmd: "/define", desc: "Definisi kata bahasa Inggris", cat: "🔧 Tools" },
+  { cmd: "/ascii", desc: "Teks ASCII spasi lebar", cat: "🔧 Tools" },
+  { cmd: "/note", desc: "Simpan catatan dengan kata kunci", cat: "🔧 Tools" },
+  { cmd: "/notes", desc: "Lihat semua catatan", cat: "🔧 Tools" },
+  { cmd: "/getnote", desc: "Ambil catatan by kata kunci", cat: "🔧 Tools" },
+  { cmd: "/delnote", desc: "Hapus catatan", cat: "🔧 Tools" },
+  { cmd: "/afk", desc: "Set status AFK", cat: "🔧 Tools" },
+  { cmd: "/ping", desc: "Tes latency bot", cat: "🔧 Tools" },
+  { cmd: "/speedtest", desc: "Tes kecepatan server", cat: "🔧 Tools" },
+  { cmd: "/timestamp", desc: "Lihat timestamp server", cat: "🔧 Tools" },
+  { cmd: "/color", desc: "Info warna dari HEX atau acak", cat: "🔧 Tools" },
+  { cmd: "/randomcolor", desc: "Warna acak", cat: "🔧 Tools" },
+  { cmd: "/password", desc: "Generate password aman", cat: "🔧 Tools" },
+  { cmd: "/ipsum", desc: "Generate Lorem Ipsum", cat: "🔧 Tools" },
 ];
 
-const CATEGORIES = [...new Set(COMMANDS.map((c) => c.cat))];
+const CATEGORIES = Array.from(new Set(FEATURES.map(f => f.cat)));
+
+const CAT_COLORS: Record<string, string> = {
+  "🛡️ Moderasi": "bg-red-500/20 border-red-500/30 text-red-300",
+  "👥 Grup": "bg-blue-500/20 border-blue-500/30 text-blue-300",
+  "ℹ️ Info": "bg-purple-500/20 border-purple-500/30 text-purple-300",
+  "💰 Ekonomi": "bg-yellow-500/20 border-yellow-500/30 text-yellow-300",
+  "🎮 Fun": "bg-green-500/20 border-green-500/30 text-green-300",
+  "🔧 Tools": "bg-cyan-500/20 border-cyan-500/30 text-cyan-300",
+};
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "commands" | "members">("overview");
-  const [selectedCat, setSelectedCat] = useState("all");
+  const [activeTab, setActiveTab] = useState("overview");
   const [search, setSearch] = useState("");
-  const [copied, setCopied] = useState<string | null>(null);
-
-  const fetchData = useCallback(async () => {
-    try {
-      const res = await fetch("/api/dashboard/stats");
-      const json = await res.json();
-      if (json.ok) setData(json.data);
-    } catch { /* ignore */ }
-    setLoading(false);
-  }, []);
+  const [activecat, setActivecat] = useState("Semua");
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+    fetch("/api/dashboard/stats")
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
 
-  const copyCmd = (cmd: string) => {
-    navigator.clipboard.writeText(cmd.split(" ")[0]);
-    setCopied(cmd);
-    setTimeout(() => setCopied(null), 2000);
-  };
-
-  const filteredCommands = COMMANDS.filter((c) => {
-    const matchCat = selectedCat === "all" || c.cat === selectedCat;
-    const matchSearch = !search || c.cmd.toLowerCase().includes(search.toLowerCase()) ||
-      c.desc.toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSearch;
+  const filteredFeatures = FEATURES.filter(f => {
+    const matchSearch = f.cmd.toLowerCase().includes(search.toLowerCase()) ||
+      f.desc.toLowerCase().includes(search.toLowerCase());
+    const matchCat = activecat === "Semua" || f.cat === activecat;
+    return matchSearch && matchCat;
   });
 
-  const totalMessages = data?.recentStats.reduce((s, d) => s + (d.totalMessages ?? 0), 0) ?? 0;
-  const totalCommands = data?.recentStats.reduce((s, d) => s + (d.totalCommands ?? 0), 0) ?? 0;
-  const todayMessages = data?.recentStats[0]?.totalMessages ?? 0;
+  const uptime = data ? Math.floor(data.uptime) : 0;
+  const uptimeStr = `${Math.floor(uptime / 3600)}j ${Math.floor((uptime % 3600) / 60)}m`;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
+    <div className="min-h-screen bg-gray-950 text-white">
       {/* Header */}
-      <header className="border-b border-white/10 backdrop-blur-sm sticky top-0 z-50 bg-slate-900/80">
+      <header className="border-b border-gray-800 bg-gray-900/80 backdrop-blur sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-xl">
-              🤖
-            </div>
+            <div className="text-3xl">🤖</div>
             <div>
-              <h1 className="font-bold text-lg leading-none">TeleBot Pro</h1>
-              <p className="text-xs text-slate-400">Dashboard Admin</p>
+              <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                TeleBot Pro
+              </h1>
+              <p className="text-xs text-gray-400">Dashboard Admin v3.0.0</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
             <span className="text-sm text-green-400">Online</span>
           </div>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Hero */}
-        <div className="relative rounded-3xl overflow-hidden mb-8 bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 p-8">
-          <div className="relative z-10">
-            <h2 className="text-3xl font-bold mb-2">🤖 TeleBot Pro v2.0</h2>
-            <p className="text-blue-200 mb-4">Bot Telegram lengkap dengan 65+ fitur canggih</p>
-            <div className="flex flex-wrap gap-2">
-              {["✅ Moderasi", "💰 Ekonomi", "🎮 Fun Games", "🔧 Tools", "📊 Statistik", "🎁 Giveaway"].map((tag) => (
-                <span key={tag} className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full text-sm">{tag}</span>
-              ))}
-            </div>
-          </div>
-          <div className="absolute inset-0 opacity-10">
-            <div className="absolute top-4 right-4 text-9xl">🤖</div>
-          </div>
-        </div>
-
+      <main className="max-w-7xl mx-auto px-4 py-8">
         {/* Tabs */}
-        <div className="flex gap-2 mb-6">
+        <div className="flex gap-2 mb-8 border-b border-gray-800">
           {[
             { id: "overview", label: "📊 Overview" },
-            { id: "commands", label: "⌨️ Commands" },
-            { id: "members", label: "👥 Members" },
-          ].map((tab) => (
+            { id: "features", label: "⚡ Fitur" },
+            { id: "setup", label: "🔧 Setup" },
+          ].map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as typeof activeTab)}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.id
-                  ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20"
-                  : "bg-white/10 text-slate-300 hover:bg-white/20"
+                  ? "border-blue-500 text-blue-400"
+                  : "border-transparent text-gray-400 hover:text-white"
               }`}
             >
               {tab.label}
@@ -216,270 +215,252 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        {/* ── OVERVIEW TAB ─────────────────────────────────────── */}
+        {/* OVERVIEW TAB */}
         {activeTab === "overview" && (
           <div>
-            {/* Stats Grid */}
+            {/* Stats Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               {[
-                { icon: "👥", label: "Total Users", value: (data?.totalUsers ?? 0).toLocaleString(), color: "from-blue-500 to-cyan-500" },
-                { icon: "💬", label: "Pesan Hari Ini", value: todayMessages.toLocaleString(), color: "from-green-500 to-emerald-500" },
-                { icon: "🏠", label: "Grup Aktif", value: (data?.totalGroups ?? 0).toLocaleString(), color: "from-purple-500 to-pink-500" },
-                { icon: "⚡", label: "Total Commands", value: totalCommands.toLocaleString(), color: "from-orange-500 to-yellow-500" },
-              ].map((stat) => (
-                <div key={stat.label} className="bg-white/5 border border-white/10 rounded-2xl p-4 hover:bg-white/10 transition">
-                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center text-lg mb-3`}>
-                    {stat.icon}
-                  </div>
-                  <p className="text-2xl font-bold">{loading ? "..." : stat.value}</p>
-                  <p className="text-slate-400 text-sm">{stat.label}</p>
+                { label: "Total Fitur", value: FEATURES.length + "+", icon: "⚡", color: "text-blue-400" },
+                { label: "Total User", value: loading ? "..." : (data?.totalUsers ?? 0).toLocaleString(), icon: "👤", color: "text-purple-400" },
+                { label: "Grup Aktif", value: loading ? "..." : (data?.totalGroups ?? 0).toString(), icon: "👥", color: "text-green-400" },
+                { label: "Uptime", value: loading ? "..." : uptimeStr, icon: "⏱️", color: "text-yellow-400" },
+              ].map((stat, i) => (
+                <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                  <div className="text-2xl mb-2">{stat.icon}</div>
+                  <div className={`text-2xl font-bold ${stat.color}`}>{stat.value}</div>
+                  <div className="text-xs text-gray-400 mt-1">{stat.label}</div>
                 </div>
               ))}
             </div>
 
-            {/* Activity Chart */}
-            {data?.recentStats && data.recentStats.length > 0 && (
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-8">
-                <h3 className="font-semibold mb-4 text-slate-200">📈 Aktivitas 7 Hari Terakhir</h3>
-                <div className="flex items-end gap-2 h-32">
-                  {[...data.recentStats].reverse().map((stat, i) => {
-                    const max = Math.max(...data.recentStats.map((s) => s.totalMessages ?? 0), 1);
-                    const height = ((stat.totalMessages ?? 0) / max) * 100;
-                    return (
-                      <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                        <div
-                          className="w-full bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-md transition-all duration-500 min-h-1"
-                          style={{ height: `${Math.max(height, 4)}%` }}
-                          title={`${stat.totalMessages ?? 0} pesan`}
-                        ></div>
-                        <span className="text-xs text-slate-500 truncate w-full text-center">
-                          {stat.date.slice(5)}
-                        </span>
-                      </div>
-                    );
-                  })}
+            {/* Stats Table */}
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-8">
+              <h2 className="text-lg font-semibold mb-4">📈 Statistik 7 Hari Terakhir</h2>
+              {loading ? (
+                <div className="text-center text-gray-500 py-8">Loading...</div>
+              ) : !data?.recentStats?.length ? (
+                <div className="text-center text-gray-500 py-8">Belum ada data statistik</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-800">
+                        <th className="text-left py-2 text-gray-400">Tanggal</th>
+                        <th className="text-right py-2 text-gray-400">Pesan</th>
+                        <th className="text-right py-2 text-gray-400">Perintah</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.recentStats.map((s) => (
+                        <tr key={s.date} className="border-b border-gray-800/50">
+                          <td className="py-2 text-gray-300">{s.date}</td>
+                          <td className="py-2 text-right text-blue-400">{(s.totalMessages ?? 0).toLocaleString()}</td>
+                          <td className="py-2 text-right text-purple-400">{(s.totalCommands ?? 0).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
-            )}
-
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Top Members */}
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
-                <h3 className="font-semibold mb-4 text-slate-200">🏆 Top Member (XP)</h3>
-                <div className="space-y-3">
-                  {loading ? (
-                    Array.from({ length: 5 }).map((_, i) => (
-                      <div key={i} className="h-12 bg-white/5 rounded-xl animate-pulse" />
-                    ))
-                  ) : data?.topMembers.slice(0, 5).map((m, i) => (
-                    <div key={m.id} className="flex items-center gap-3 bg-white/5 rounded-xl p-3">
-                      <span className="text-lg">{["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i]}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">
-                          {m.username ? `@${m.username}` : (m.firstName ?? "Unknown")}
-                        </p>
-                        <p className="text-xs text-slate-400">Level {m.level} • {(m.xpPoints ?? 0).toLocaleString()} XP</p>
-                      </div>
-                      <span className="text-blue-400 text-sm font-mono">{m.messageCount ?? 0} msg</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Setup Guide */}
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
-                <h3 className="font-semibold mb-4 text-slate-200">🚀 Setup Bot</h3>
-                <ol className="space-y-3 text-sm">
-                  {[
-                    { step: "1", title: "Fork/Clone repo ini ke GitHub", desc: "Pastikan kode sudah ada di GitHub kamu" },
-                    { step: "2", title: "Buat bot di @BotFather", desc: "Dapatkan TELEGRAM_BOT_TOKEN" },
-                    { step: "3", title: "Deploy ke Vercel", desc: "Import repo dari GitHub, set env vars" },
-                    { step: "4", title: "Setup webhook", desc: "GET /api/setup-webhook?secret=YOUR_SECRET" },
-                    { step: "5", title: "Tambah bot ke grup", desc: "Jadikan bot sebagai admin grup" },
-                    { step: "6", title: "Update via GitHub", desc: "Push kode baru → Vercel auto-deploy" },
-                  ].map((item) => (
-                    <li key={item.step} className="flex gap-3">
-                      <span className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
-                        {item.step}
-                      </span>
-                      <div>
-                        <p className="font-medium text-white">{item.title}</p>
-                        <p className="text-slate-400 text-xs">{item.desc}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              </div>
+              )}
             </div>
 
-            {/* Feature Count Banner */}
-            <div className="mt-8 bg-gradient-to-r from-purple-900/50 to-blue-900/50 border border-purple-500/30 rounded-2xl p-6">
-              <h3 className="text-xl font-bold mb-4">📋 Fitur Lengkap (65+ Perintah)</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                {[
-                  { icon: "🛡️", label: "Moderasi", count: 13 },
-                  { icon: "👥", label: "Grup", count: 16 },
-                  { icon: "ℹ️", label: "Info", count: 9 },
-                  { icon: "🎮", label: "Fun", count: 12 },
-                  { icon: "💰", label: "Ekonomi", count: 6 },
-                  { icon: "🔧", label: "Tools", count: 12 },
-                ].map((cat) => (
-                  <div key={cat.label} className="bg-white/10 rounded-xl p-3 text-center">
-                    <div className="text-2xl mb-1">{cat.icon}</div>
-                    <p className="font-bold text-lg">{cat.count}+</p>
-                    <p className="text-xs text-slate-400">{cat.label}</p>
+            {/* Category Summary */}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {CATEGORIES.map(cat => {
+                const catFeatures = FEATURES.filter(f => f.cat === cat);
+                const colorClass = CAT_COLORS[cat] || "bg-gray-700/20 border-gray-700 text-gray-300";
+                return (
+                  <div key={cat} className={`border rounded-xl p-4 ${colorClass}`}>
+                    <div className="text-lg font-semibold mb-1">{cat}</div>
+                    <div className="text-3xl font-bold">{catFeatures.length}</div>
+                    <div className="text-xs opacity-70 mt-1">perintah tersedia</div>
                   </div>
-                ))}
-              </div>
+                );
+              })}
             </div>
           </div>
         )}
 
-        {/* ── COMMANDS TAB ─────────────────────────────────────── */}
-        {activeTab === "commands" && (
+        {/* FEATURES TAB */}
+        {activeTab === "features" && (
           <div>
-            {/* Search & Filter */}
-            <div className="flex flex-col sm:flex-row gap-3 mb-6">
+            <div className="flex flex-col md:flex-row gap-4 mb-6">
               <input
                 type="text"
-                placeholder="🔍 Cari perintah..."
+                placeholder="🔍 Cari perintah atau deskripsi..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="flex-1 bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={e => setSearch(e.target.value)}
+                className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
               />
-              <select
-                value={selectedCat}
-                onChange={(e) => setSelectedCat(e.target.value)}
-                className="bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all" className="bg-slate-800">Semua Kategori</option>
-                {CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat} className="bg-slate-800">{cat}</option>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={() => setActivecat("Semua")}
+                  className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                    activecat === "Semua"
+                      ? "bg-blue-500 border-blue-500 text-white"
+                      : "border-gray-700 text-gray-400 hover:text-white"
+                  }`}
+                >
+                  Semua ({FEATURES.length})
+                </button>
+                {CATEGORIES.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setActivecat(cat)}
+                    className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                      activecat === cat
+                        ? "bg-blue-500 border-blue-500 text-white"
+                        : "border-gray-700 text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    {cat.split(" ").slice(0, 2).join(" ")} ({FEATURES.filter(f => f.cat === cat).length})
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
 
-            <p className="text-slate-400 text-sm mb-4">
-              Menampilkan {filteredCommands.length} dari {COMMANDS.length} perintah
-            </p>
+            <div className="text-sm text-gray-500 mb-4">
+              Menampilkan {filteredFeatures.length} dari {FEATURES.length} fitur
+            </div>
 
-            <div className="grid md:grid-cols-2 gap-3">
-              {filteredCommands.map((cmd) => (
-                <div
-                  key={cmd.cmd}
-                  className="bg-white/5 border border-white/10 rounded-xl p-4 hover:bg-white/10 transition group"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <code className="bg-blue-600/30 text-blue-300 px-2 py-0.5 rounded text-sm font-mono">
-                          {cmd.cmd}
-                        </code>
-                        {cmd.adminOnly && (
-                          <span className="bg-yellow-500/20 text-yellow-400 text-xs px-2 py-0.5 rounded-full">
-                            👑 Admin
-                          </span>
-                        )}
-                        <span className="text-xs text-slate-500">{cmd.cat}</span>
-                      </div>
-                      <p className="text-slate-300 text-sm mt-1">{cmd.desc}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredFeatures.map((f, i) => {
+                const colorClass = CAT_COLORS[f.cat] || "bg-gray-700/20 border-gray-700 text-gray-300";
+                return (
+                  <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-600 transition-colors">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <code className="text-blue-400 font-mono text-sm font-medium">{f.cmd}</code>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border shrink-0 ${colorClass}`}>
+                        {f.cat.split(" ")[0]}
+                      </span>
                     </div>
-                    <button
-                      onClick={() => copyCmd(cmd.cmd)}
-                      className="opacity-0 group-hover:opacity-100 transition text-slate-400 hover:text-white bg-white/10 rounded-lg p-1.5 flex-shrink-0"
-                      title="Copy"
-                    >
-                      {copied === cmd.cmd ? "✅" : "📋"}
-                    </button>
+                    <p className="text-gray-400 text-xs">{f.desc}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* SETUP TAB */}
+        {activeTab === "setup" && (
+          <div className="max-w-3xl">
+            <div className="space-y-6">
+              {/* Quick Setup */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+                <h2 className="text-lg font-semibold mb-4">🚀 Quick Setup</h2>
+                <div className="space-y-4">
+                  {[
+                    {
+                      step: "1",
+                      title: "Buat Bot di BotFather",
+                      desc: "Chat ke @BotFather → /newbot → ikuti instruksi → salin token",
+                      code: null,
+                    },
+                    {
+                      step: "2",
+                      title: "Set Environment Variables",
+                      desc: "Tambahkan di .env atau platform deployment:",
+                      code: "TELEGRAM_BOT_TOKEN=your_token_here\nSETUP_SECRET=random_secret_string\nDATABASE_URL=postgresql://...\nBOT_USERNAME=your_bot_username",
+                    },
+                    {
+                      step: "3",
+                      title: "Push ke GitHub & Deploy ke Vercel",
+                      desc: "Fork → Push ke GitHub → Import di Vercel → Tambah env vars → Deploy",
+                      code: null,
+                    },
+                    {
+                      step: "4",
+                      title: "Setup Database",
+                      desc: "Jalankan migrasi database:",
+                      code: "npx drizzle-kit push",
+                    },
+                    {
+                      step: "5",
+                      title: "Setup Webhook",
+                      desc: "Setelah deploy, panggil endpoint ini:",
+                      code: "curl https://your-app.vercel.app/api/setup-webhook?secret=your_secret",
+                    },
+                    {
+                      step: "6",
+                      title: "Tambahkan Bot ke Grup",
+                      desc: "Bot → Settings → Add to Group → Pilih grup → Berikan permission Admin (Delete messages, Restrict members, Invite users)",
+                      code: null,
+                    },
+                  ].map((item) => (
+                    <div key={item.step} className="flex gap-4">
+                      <div className="w-8 h-8 rounded-full bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold text-sm shrink-0">
+                        {item.step}
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-medium text-white mb-1">{item.title}</h3>
+                        <p className="text-gray-400 text-sm mb-2">{item.desc}</p>
+                        {item.code && (
+                          <pre className="bg-gray-800 rounded-lg p-3 text-xs text-green-400 font-mono overflow-x-auto">
+                            {item.code}
+                          </pre>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* GitHub Actions */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+                <h2 className="text-lg font-semibold mb-4">⚙️ GitHub Actions Auto Deploy</h2>
+                <p className="text-gray-400 text-sm mb-4">
+                  Tambahkan secrets ini di GitHub repo → Settings → Secrets → Actions:
+                </p>
+                <div className="space-y-2">
+                  {[
+                    { key: "VERCEL_TOKEN", desc: "Token dari Vercel Settings → Tokens" },
+                    { key: "VERCEL_ORG_ID", desc: "Organization ID dari vercel.json" },
+                    { key: "VERCEL_PROJECT_ID", desc: "Project ID dari vercel.json" },
+                    { key: "TELEGRAM_BOT_TOKEN", desc: "Token bot dari BotFather" },
+                    { key: "DATABASE_URL", desc: "Connection string PostgreSQL" },
+                    { key: "SETUP_SECRET", desc: "Secret untuk setup webhook" },
+                  ].map(s => (
+                    <div key={s.key} className="flex gap-3 items-start">
+                      <code className="bg-gray-800 px-2 py-1 rounded text-xs text-yellow-400 font-mono shrink-0">{s.key}</code>
+                      <span className="text-gray-400 text-xs pt-1">{s.desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Update Guide */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+                <h2 className="text-lg font-semibold mb-4">📝 Cara Update Fitur via GitHub</h2>
+                <div className="space-y-3 text-sm text-gray-400">
+                  <p>✅ <strong className="text-white">Semudah edit file di GitHub!</strong></p>
+                  <p>Untuk menambah atau mengubah fitur:</p>
+                  <ol className="space-y-2 list-decimal list-inside ml-2">
+                    <li>Buka file di <code className="bg-gray-800 px-1 rounded text-yellow-400">src/lib/bot/features/</code></li>
+                    <li>Edit perintah yang ada atau tambah yang baru</li>
+                    <li>Commit dan push ke GitHub</li>
+                    <li>Vercel akan otomatis redeploy (jika sudah setup)</li>
+                    <li>Selesai! Bot langsung update</li>
+                  </ol>
+                  <div className="mt-4 bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                    <p className="text-blue-300 font-medium mb-2">📁 Struktur File Fitur:</p>
+                    <pre className="text-xs text-gray-400 font-mono">
+{`src/lib/bot/features/
+├── moderation.ts  → /ban, /mute, /warn, dll
+├── group.ts       → /tagall, /giveaway, dll
+├── info.ts        → /help, /profile, dll
+├── economy.ts     → /daily, /gamble, dll
+├── fun.ts         → /dice, /slots, dll
+└── tools.ts       → /weather, /calc, dll`}
+                    </pre>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── MEMBERS TAB ──────────────────────────────────────── */}
-        {activeTab === "members" && (
-          <div>
-            <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-              <div className="p-4 border-b border-white/10">
-                <h3 className="font-semibold">👥 Daftar Member</h3>
-                <p className="text-slate-400 text-sm">Data member berdasarkan XP tertinggi</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-white/10 text-slate-400">
-                      <th className="text-left px-4 py-3">Member</th>
-                      <th className="text-left px-4 py-3">Level</th>
-                      <th className="text-left px-4 py-3">XP</th>
-                      <th className="text-left px-4 py-3">Koin</th>
-                      <th className="text-left px-4 py-3">Pesan</th>
-                      <th className="text-left px-4 py-3">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loading ? (
-                      Array.from({ length: 5 }).map((_, i) => (
-                        <tr key={i} className="border-b border-white/5">
-                          <td className="px-4 py-3" colSpan={6}>
-                            <div className="h-8 bg-white/5 rounded animate-pulse" />
-                          </td>
-                        </tr>
-                      ))
-                    ) : data?.topMembers.map((m) => (
-                      <tr key={m.id} className="border-b border-white/5 hover:bg-white/5 transition">
-                        <td className="px-4 py-3">
-                          <div>
-                            <p className="font-medium">{m.firstName ?? "Unknown"} {m.lastName ?? ""}</p>
-                            <p className="text-slate-500 text-xs">
-                              {m.username ? `@${m.username}` : `ID: ${m.userId}`}
-                            </p>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full text-xs">
-                            Lvl {m.level ?? 1}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 font-mono text-blue-300">
-                          {(m.xpPoints ?? 0).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-yellow-300">
-                          🪙 {(m.coins ?? 0).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-slate-300">
-                          {(m.messageCount ?? 0).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3">
-                          {m.isBanned ? (
-                            <span className="text-red-400 text-xs">🚫 Banned</span>
-                          ) : m.warnings && m.warnings > 0 ? (
-                            <span className="text-yellow-400 text-xs">⚠️ {m.warnings} warn</span>
-                          ) : (
-                            <span className="text-green-400 text-xs">✅ Normal</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
             </div>
           </div>
         )}
-
-        {/* Footer */}
-        <footer className="mt-12 text-center text-slate-600 text-sm">
-          <p>🤖 TeleBot Pro v2.0 • Built with Next.js + grammY + PostgreSQL</p>
-          <p className="mt-1">
-            <a href="https://github.com/cawikmas/bot" className="text-blue-600 hover:text-blue-400 transition">
-              GitHub Repository
-            </a>
-            {" "} • Update via GitHub Push → Auto Deploy di Vercel
-          </p>
-        </footer>
-      </div>
+      </main>
     </div>
   );
 }

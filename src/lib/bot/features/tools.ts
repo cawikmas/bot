@@ -1,19 +1,17 @@
 import { Bot } from "grammy";
-import { safeReply, randomInt } from "../helpers";
+import { safeReply, randomInt, getZodiac } from "../helpers";
 import { db } from "@/db";
-import { notes, reminders, groupSettings } from "@/db/schema";
+import { notes, groupSettings, filters, birthdays } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { isAdmin } from "../helpers";
 import axios from "axios";
 
 export function registerToolsCommands(bot: Bot) {
-  // ─── /calc ───────────────────────────────────────────────────────────────
+  // ─── /calc ────────────────────────────────────────────────────────────
   bot.command("calc", async (ctx) => {
     const expr = ctx.match || "";
     if (!expr) return safeReply(ctx, "🧮 Gunakan: /calc [ekspresi]\nContoh: /calc 10 + 5 * 2");
-
     try {
-      // Safe eval with basic math only
       const sanitized = expr.replace(/[^0-9+\-*/.() %]/g, "");
       if (!sanitized) throw new Error("Invalid");
       // eslint-disable-next-line no-new-func
@@ -24,64 +22,52 @@ export function registerToolsCommands(bot: Bot) {
     }
   });
 
-  // ─── /convert ────────────────────────────────────────────────────────────
+  // ─── /convert ─────────────────────────────────────────────────────────
   bot.command("convert", async (ctx) => {
     const args = (ctx.match || "").split(" ");
     if (args.length < 3) {
       return safeReply(ctx,
-        "🔄 *Konversi Satuan*\n\nGunakan: /convert [nilai] [dari] [ke]\n\n" +
+        "🔄 Gunakan: /convert [nilai] [dari] [ke]\n\n" +
         "Contoh:\n" +
         "/convert 100 km m\n" +
-        "/convert 1 kg g\n" +
-        "/convert 100 usd idr\n" +
-        "/convert 37 c f"
+        "/convert 5 kg g\n" +
+        "/convert 30 c f\n" +
+        "/convert 1 usd idr"
       );
     }
-
     const value = parseFloat(args[0]);
     const from = args[1].toLowerCase();
     const to = args[2].toLowerCase();
-
     if (isNaN(value)) return safeReply(ctx, "❌ Nilai tidak valid.");
 
     let result: number | null = null;
-    let unit = "";
+    let unit = to;
 
-    // Length
     const lengthToM: Record<string, number> = { km: 1000, m: 1, cm: 0.01, mm: 0.001, mi: 1609.34, ft: 0.3048, in: 0.0254, yd: 0.9144 };
-    // Weight
     const weightToKg: Record<string, number> = { kg: 1, g: 0.001, mg: 0.000001, lb: 0.453592, oz: 0.0283495, ton: 1000 };
 
     if (lengthToM[from] && lengthToM[to]) {
       result = (value * lengthToM[from]) / lengthToM[to];
-      unit = to;
     } else if (weightToKg[from] && weightToKg[to]) {
       result = (value * weightToKg[from]) / weightToKg[to];
-      unit = to;
     } else if ((from === "c" || from === "celsius") && (to === "f" || to === "fahrenheit")) {
-      result = (value * 9/5) + 32;
-      unit = "°F";
+      result = (value * 9 / 5) + 32; unit = "°F";
     } else if ((from === "f" || from === "fahrenheit") && (to === "c" || to === "celsius")) {
-      result = (value - 32) * 5/9;
-      unit = "°C";
+      result = (value - 32) * 5 / 9; unit = "°C";
     } else if ((from === "c" || from === "celsius") && (to === "k" || to === "kelvin")) {
-      result = value + 273.15;
-      unit = "K";
-    } else if (from === "km" && to === "miles") {
-      result = value * 0.621371;
-      unit = "miles";
+      result = value + 273.15; unit = "K";
     } else {
-      return safeReply(ctx, "❌ Konversi tidak didukung. Coba: km↔m, kg↔g, C↔F");
+      return safeReply(ctx, "❌ Konversi tidak didukung.\nCoba: km↔m, kg↔g, C↔F, C↔K");
     }
 
     await safeReply(ctx,
       `🔄 *Konversi Satuan*\n\n` +
       `📥 Input: *${value} ${from}*\n` +
-      `📤 Hasil: *${Number(result.toFixed(6))} ${unit}*`
+      `📤 Hasil: *${Number(result!.toFixed(6))} ${unit}*`
     );
   });
 
-  // ─── /note ───────────────────────────────────────────────────────────────
+  // ─── /note ────────────────────────────────────────────────────────────
   bot.command("note", async (ctx) => {
     if (!(await isAdmin(ctx))) return safeReply(ctx, "❌ Hanya admin.");
     const args = (ctx.match || "").split(" ");
@@ -98,47 +84,36 @@ export function registerToolsCommands(bot: Bot) {
       .limit(1);
 
     if (existing.length > 0) {
-      await db.update(notes)
-        .set({ content })
-        .where(and(eq(notes.chatId, chatId), eq(notes.keyword, keyword)));
+      await db.update(notes).set({ content }).where(and(eq(notes.chatId, chatId), eq(notes.keyword, keyword)));
       await safeReply(ctx, `✅ Note *${keyword}* telah diperbarui!`);
     } else {
-      await db.insert(notes).values({
-        chatId,
-        keyword,
-        content,
-        createdBy: String(ctx.from!.id),
-      });
+      await db.insert(notes).values({ chatId, keyword, content, createdBy: String(ctx.from!.id) });
       await safeReply(ctx, `✅ Note *${keyword}* telah disimpan!`);
     }
   });
 
-  // ─── /notes ──────────────────────────────────────────────────────────────
+  // ─── /notes ───────────────────────────────────────────────────────────
   bot.command("notes", async (ctx) => {
     const chatId = String(ctx.chat!.id);
     const allNotes = await db.select().from(notes).where(eq(notes.chatId, chatId));
-
     if (allNotes.length === 0) return safeReply(ctx, "📭 Belum ada note tersimpan.");
-
     const list = allNotes.map((n) => `• \`${n.keyword}\``).join("\n");
     await safeReply(ctx, `📝 *Daftar Note*\n\n${list}\n\nGunakan \`#kata_kunci\` atau /getnote [kata_kunci]`);
   });
 
-  // ─── /getnote ────────────────────────────────────────────────────────────
+  // ─── /getnote ─────────────────────────────────────────────────────────
   bot.command("getnote", async (ctx) => {
     const keyword = (ctx.match || "").toLowerCase().trim();
     if (!keyword) return safeReply(ctx, "📝 Gunakan: /getnote [kata_kunci]");
-
     const chatId = String(ctx.chat!.id);
     const note = await db.select().from(notes)
       .where(and(eq(notes.chatId, chatId), eq(notes.keyword, keyword)))
       .limit(1);
-
     if (note.length === 0) return safeReply(ctx, `❌ Note *${keyword}* tidak ditemukan.`);
     await safeReply(ctx, `📝 *#${keyword}*\n\n${note[0].content}`);
   });
 
-  // ─── #keyword trigger ────────────────────────────────────────────────────
+  // ─── #keyword trigger ─────────────────────────────────────────────────
   bot.on("message:text", async (ctx, next) => {
     const text = ctx.message.text;
     if (text.startsWith("#") && ctx.chat.type !== "private") {
@@ -154,30 +129,17 @@ export function registerToolsCommands(bot: Bot) {
     return next();
   });
 
-  // ─── /delnote ────────────────────────────────────────────────────────────
+  // ─── /delnote ─────────────────────────────────────────────────────────
   bot.command("delnote", async (ctx) => {
     if (!(await isAdmin(ctx))) return safeReply(ctx, "❌ Hanya admin.");
     const keyword = (ctx.match || "").toLowerCase().trim();
     if (!keyword) return safeReply(ctx, "📝 Gunakan: /delnote [kata_kunci]");
-
     const chatId = String(ctx.chat!.id);
-    await db.delete(notes)
-      .where(and(eq(notes.chatId, chatId), eq(notes.keyword, keyword)));
-
+    await db.delete(notes).where(and(eq(notes.chatId, chatId), eq(notes.keyword, keyword)));
     await safeReply(ctx, `🗑️ Note *${keyword}* telah dihapus.`);
   });
 
-  // ─── /remind ─────────────────────────────────────────────────────────────
-  bot.command("remind", async (ctx) => {
-    await safeReply(ctx,
-      `⏰ *Pengingat*\n\nFitur pengingat aktif!\n\n` +
-      `Pesan yang tersimpan akan dikirim pada waktu yang ditentukan.\n` +
-      `Gunakan /remind [waktu] [pesan]\n\n` +
-      `Contoh: /remind 1h Jangan lupa minum obat`
-    );
-  });
-
-  // ─── /afk ────────────────────────────────────────────────────────────────
+  // ─── /afk ─────────────────────────────────────────────────────────────
   bot.command("afk", async (ctx) => {
     const reason = ctx.match || "Tidak ada alasan";
     const name = ctx.from?.first_name || "User";
@@ -186,13 +148,11 @@ export function registerToolsCommands(bot: Bot) {
     );
   });
 
-  // ─── /qr ─────────────────────────────────────────────────────────────────
+  // ─── /qr ──────────────────────────────────────────────────────────────
   bot.command("qr", async (ctx) => {
     const text = ctx.match || "";
     if (!text) return safeReply(ctx, "📱 Gunakan: /qr [teks atau URL]");
-
     const url = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(text)}`;
-
     try {
       await ctx.replyWithPhoto(url, {
         caption: `📱 *QR Code*\n\n📝 Data: ${text}`,
@@ -203,37 +163,29 @@ export function registerToolsCommands(bot: Bot) {
     }
   });
 
-  // ─── /tinyurl ────────────────────────────────────────────────────────────
+  // ─── /tinyurl ─────────────────────────────────────────────────────────
   bot.command("tinyurl", async (ctx) => {
     const url = ctx.match || "";
     if (!url) return safeReply(ctx, "🔗 Gunakan: /tinyurl [URL]");
-
     try {
-      const res = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`, {
-        timeout: 5000,
-      });
+      const res = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`, { timeout: 5000 });
       await safeReply(ctx, `🔗 *URL Dipersingkat*\n\n📎 Original: ${url}\n✂️ Short: ${res.data}`);
     } catch {
       safeReply(ctx, "❌ Gagal mempersingkat URL. Coba lagi.");
     }
   });
 
-  // ─── /weather ────────────────────────────────────────────────────────────
+  // ─── /weather ─────────────────────────────────────────────────────────
   bot.command("weather", async (ctx) => {
     const city = ctx.match || "";
     if (!city) return safeReply(ctx, "🌤️ Gunakan: /weather [nama kota]\nContoh: /weather Jakarta");
-
     try {
-      // Using open-meteo with geocoding
       const geoRes = await axios.get(
         `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=id`,
         { timeout: 5000 }
       );
-
-      const geoData = geoRes.data;
-      if (!geoData.results?.length) {
-        return safeReply(ctx, `❌ Kota *${city}* tidak ditemukan.`);
-      }
+      const geoData = geoRes.data as { results?: Array<{ latitude: number; longitude: number; name: string; country: string }> };
+      if (!geoData.results?.length) return safeReply(ctx, `❌ Kota *${city}* tidak ditemukan.`);
 
       const loc = geoData.results[0];
       const weatherRes = await axios.get(
@@ -242,25 +194,14 @@ export function registerToolsCommands(bot: Bot) {
         `&timezone=auto`,
         { timeout: 5000 }
       );
-
-      const w = weatherRes.data.current;
+      const w = (weatherRes.data as { current: { temperature_2m: number; relative_humidity_2m: number; weather_code: number; wind_speed_10m: number } }).current;
       const weatherCodes: Record<number, string> = {
-        0: "☀️ Cerah",
-        1: "🌤️ Sebagian Cerah",
-        2: "⛅ Berawan Sebagian",
-        3: "☁️ Berawan",
-        45: "🌫️ Berkabut",
-        48: "🌫️ Berkabut Es",
-        51: "🌦️ Gerimis Ringan",
-        61: "🌧️ Hujan Ringan",
-        63: "🌧️ Hujan Sedang",
-        65: "🌧️ Hujan Lebat",
-        80: "🌦️ Hujan Lokal",
-        95: "⛈️ Badai Petir",
+        0: "☀️ Cerah", 1: "🌤️ Sebagian Cerah", 2: "⛅ Berawan Sebagian",
+        3: "☁️ Berawan", 45: "🌫️ Berkabut", 48: "🌫️ Berkabut Es",
+        51: "🌦️ Gerimis Ringan", 61: "🌧️ Hujan Ringan", 63: "🌧️ Hujan Sedang",
+        65: "🌧️ Hujan Lebat", 80: "🌦️ Hujan Lokal", 95: "⛈️ Badai Petir",
       };
-
       const weatherDesc = weatherCodes[w.weather_code] || "❓ Tidak Diketahui";
-
       await safeReply(ctx,
         `🌤️ *Cuaca ${loc.name}, ${loc.country}*\n\n` +
         `${weatherDesc}\n` +
@@ -269,17 +210,16 @@ export function registerToolsCommands(bot: Bot) {
         `💨 Angin: *${w.wind_speed_10m} km/h*\n\n` +
         `📍 ${loc.latitude.toFixed(2)}, ${loc.longitude.toFixed(2)}`
       );
-    } catch (err) {
+    } catch {
       safeReply(ctx, "❌ Gagal mengambil data cuaca. Coba lagi.");
     }
   });
 
-  // ─── /translate ──────────────────────────────────────────────────────────
+  // ─── /translate ───────────────────────────────────────────────────────
   bot.command("translate", async (ctx) => {
     const args = (ctx.match || "").split(" ");
     const targetLang = args[0] || "id";
     const text = args.slice(1).join(" ") || ctx.message?.reply_to_message?.text;
-
     if (!text) {
       return safeReply(ctx,
         "🌐 Gunakan: /translate [bahasa] [teks]\n" +
@@ -287,16 +227,13 @@ export function registerToolsCommands(bot: Bot) {
         "Contoh:\n/translate en Halo dunia\n/translate id Hello world"
       );
     }
-
     try {
       const res = await axios.get(
         `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=auto|${targetLang}`,
         { timeout: 5000 }
       );
-
-      const translated = res.data?.responseData?.translatedText;
+      const translated = (res.data as { responseData?: { translatedText?: string } })?.responseData?.translatedText;
       if (!translated) throw new Error("No translation");
-
       await safeReply(ctx,
         `🌐 *Terjemahan*\n\n` +
         `📝 Asli: _${text}_\n` +
@@ -307,20 +244,15 @@ export function registerToolsCommands(bot: Bot) {
     }
   });
 
-  // ─── /define ─────────────────────────────────────────────────────────────
+  // ─── /define ──────────────────────────────────────────────────────────
   bot.command("define", async (ctx) => {
     const word = (ctx.match || "").trim();
     if (!word) return safeReply(ctx, "📖 Gunakan: /define [kata dalam bahasa Inggris]");
-
     try {
-      const res = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, {
-        timeout: 5000,
-      });
-
-      const data = res.data[0];
+      const res = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, { timeout: 5000 });
+      const data = (res.data as Array<{ meanings: Array<{ partOfSpeech: string; definitions: Array<{ definition: string; example?: string }> }> }>)[0];
       const meaning = data.meanings[0];
       const def = meaning.definitions[0];
-
       await safeReply(ctx,
         `📖 *Definisi: ${word}*\n\n` +
         `📋 Jenis kata: _${meaning.partOfSpeech}_\n` +
@@ -332,12 +264,309 @@ export function registerToolsCommands(bot: Bot) {
     }
   });
 
-  // ─── /ascii ──────────────────────────────────────────────────────────────
+  // ─── /ascii ───────────────────────────────────────────────────────────
   bot.command("ascii", async (ctx) => {
     const text = (ctx.match || "").toUpperCase().slice(0, 10);
     if (!text) return safeReply(ctx, "🔤 Gunakan: /ascii [teks]\nContoh: /ascii HELLO");
-
     const result = `\`\`\`\n${text.split("").join(" ")}\n\`\`\``;
     await ctx.reply(`🔤 *ASCII Text*\n\n${result}`, { parse_mode: "Markdown" });
   });
+
+  // ─── /setbirthday ─────────────────────────────────────────────────────
+  bot.command("setbirthday", async (ctx) => {
+    const args = (ctx.match || "").split("-");
+    if (args.length < 2) {
+      return safeReply(ctx, "🎂 Gunakan: /setbirthday [DD-MM] atau [DD-MM-YYYY]\nContoh: /setbirthday 25-12 atau /setbirthday 25-12-2000");
+    }
+    const day = parseInt(args[0]);
+    const month = parseInt(args[1]);
+    const year = args[2] ? parseInt(args[2]) : undefined;
+
+    if (isNaN(day) || isNaN(month) || day < 1 || day > 31 || month < 1 || month > 12) {
+      return safeReply(ctx, "❌ Format tanggal tidak valid.");
+    }
+
+    const chatId = String(ctx.chat!.id);
+    const userId = String(ctx.from!.id);
+
+    const existing = await db.select().from(birthdays)
+      .where(and(eq(birthdays.chatId, chatId), eq(birthdays.userId, userId)))
+      .limit(1);
+
+    if (existing.length > 0) {
+      await db.update(birthdays)
+        .set({ birthDay: day, birthMonth: month, birthYear: year ?? null })
+        .where(eq(birthdays.id, existing[0].id));
+    } else {
+      await db.insert(birthdays).values({
+        chatId,
+        userId,
+        username: ctx.from!.username ?? null,
+        firstName: ctx.from!.first_name ?? null,
+        birthDay: day,
+        birthMonth: month,
+        birthYear: year ?? null,
+      });
+    }
+
+    const zodiac = getZodiac(day, month);
+    await safeReply(ctx,
+      `🎂 *Ulang Tahun Tersimpan!*\n\n` +
+      `📅 Tanggal: *${day}-${month}${year ? `-${year}` : ""}*\n` +
+      `${zodiac}\n\n` +
+      `Bot akan mengucapkan selamat ulang tahun otomatis! 🎉`
+    );
+  });
+
+  // ─── /birthday ────────────────────────────────────────────────────────
+  bot.command("birthday", async (ctx) => {
+    if (ctx.chat.type === "private") return safeReply(ctx, "❌ Hanya untuk grup.");
+    const chatId = String(ctx.chat!.id);
+    const now = new Date();
+    const todayBirthdays = await db.select().from(birthdays)
+      .where(and(
+        eq(birthdays.chatId, chatId),
+        eq(birthdays.birthDay, now.getDate()),
+        eq(birthdays.birthMonth, now.getMonth() + 1)
+      ));
+
+    if (todayBirthdays.length === 0) {
+      return safeReply(ctx, `📅 Tidak ada ulang tahun hari ini (${now.getDate()}-${now.getMonth() + 1}).\n\nDaftarkan ulang tahunmu dengan /setbirthday`);
+    }
+
+    const list = todayBirthdays.map(b => {
+      const name = b.username ? `@${b.username}` : (b.firstName ?? "Unknown");
+      const age = b.birthYear ? now.getFullYear() - b.birthYear : null;
+      return `🎂 *${name}*${age ? ` (${age} tahun)` : ""}`;
+    }).join("\n");
+
+    await safeReply(ctx,
+      `🎉 *Ulang Tahun Hari Ini!*\n\n${list}\n\n` +
+      `🎊 Selamat ulang tahun! Semoga panjang umur dan bahagia selalu!`
+    );
+  });
+
+  // ─── /zodiac ──────────────────────────────────────────────────────────
+  bot.command("zodiac", async (ctx) => {
+    const args = (ctx.match || "").split("-");
+    if (args.length < 2) return safeReply(ctx, "♈ Gunakan: /zodiac [DD-MM]\nContoh: /zodiac 21-03");
+    const day = parseInt(args[0]);
+    const month = parseInt(args[1]);
+    if (isNaN(day) || isNaN(month)) return safeReply(ctx, "❌ Format tidak valid.");
+
+    const zodiac = getZodiac(day, month);
+    const descriptions: Record<string, string> = {
+      "♈ Aries": "Berani, percaya diri, antusias, dan suka memimpin.",
+      "♉ Taurus": "Teguh, sabar, praktis, dan sangat setia.",
+      "♊ Gemini": "Cerdas, komunikatif, adaptif, dan penasaran.",
+      "♋ Cancer": "Penyayang, intuitif, emosional, dan protektif.",
+      "♌ Leo": "Percaya diri, murah hati, bersemangat, dan suka perhatian.",
+      "♍ Virgo": "Analitis, teliti, pekerja keras, dan praktis.",
+      "♎ Libra": "Adil, diplomatik, sosial, dan mencintai keharmonisan.",
+      "♏ Scorpio": "Intens, semangat, berani, dan misterius.",
+      "♐ Sagittarius": "Optimis, bebas, suka petualangan, dan jujur.",
+      "♑ Capricorn": "Ambisius, disiplin, sabar, dan bertanggung jawab.",
+      "♒ Aquarius": "Inovatif, humanis, intelektual, dan independen.",
+      "♓ Pisces": "Empatik, artistik, intuitif, dan penyayang.",
+    };
+
+    await safeReply(ctx,
+      `${zodiac}\n\n` +
+      `📅 Tanggal: *${day}/${month}*\n\n` +
+      `📝 ${descriptions[zodiac] || "Penuh misteri dan keunikan tersendiri."}`
+    );
+  });
+
+  // ─── /addfilter ───────────────────────────────────────────────────────
+  bot.command("addfilter", async (ctx) => {
+    if (!(await isAdmin(ctx))) return safeReply(ctx, "❌ Hanya admin.");
+    const args = (ctx.match || "").split("|").map(s => s.trim());
+    if (args.length < 2) {
+      return safeReply(ctx,
+        "🔍 Gunakan: /addfilter [kata kunci] | [respons]\n\n" +
+        "Contoh: /addfilter halo | Hei! Apa kabar? 😊"
+      );
+    }
+    const keyword = args[0].toLowerCase();
+    const response = args[1];
+    const chatId = String(ctx.chat!.id);
+
+    await db.insert(filters).values({ chatId, keyword, response, createdBy: String(ctx.from!.id) });
+    await safeReply(ctx, `✅ Filter *${keyword}* ditambahkan!\n\nBot akan membalas otomatis ketika kata ini muncul.`);
+  });
+
+  // ─── /delfilter ───────────────────────────────────────────────────────
+  bot.command("delfilter", async (ctx) => {
+    if (!(await isAdmin(ctx))) return safeReply(ctx, "❌ Hanya admin.");
+    const keyword = (ctx.match || "").toLowerCase().trim();
+    if (!keyword) return safeReply(ctx, "🔍 Gunakan: /delfilter [kata kunci]");
+    const chatId = String(ctx.chat!.id);
+    await db.delete(filters).where(and(eq(filters.chatId, chatId), eq(filters.keyword, keyword)));
+    await safeReply(ctx, `🗑️ Filter *${keyword}* dihapus.`);
+  });
+
+  // ─── /listfilters ─────────────────────────────────────────────────────
+  bot.command("listfilters", async (ctx) => {
+    const chatId = String(ctx.chat!.id);
+    const all = await db.select().from(filters).where(eq(filters.chatId, chatId));
+    if (all.length === 0) return safeReply(ctx, "📭 Belum ada filter tersimpan.");
+    const list = all.map(f => `• \`${f.keyword}\``).join("\n");
+    await safeReply(ctx, `🔍 *Daftar Filter*\n\n${list}`);
+  });
+
+  // ─── Filter handler ───────────────────────────────────────────────────
+  bot.on("message:text", async (ctx, next) => {
+    if (ctx.chat.type === "private") return next();
+    const text = ctx.message.text.toLowerCase();
+    const chatId = String(ctx.chat.id);
+    try {
+      const allFilters = await db.select().from(filters).where(eq(filters.chatId, chatId));
+      for (const f of allFilters) {
+        if (text.includes(f.keyword)) {
+          await ctx.reply(f.response);
+          return;
+        }
+      }
+    } catch { /* ignore */ }
+    return next();
+  });
+
+  // ─── /ping ────────────────────────────────────────────────────────────
+  bot.command("ping", async (ctx) => {
+    const start = Date.now();
+    const msg = await ctx.reply("🏓 Pong...");
+    const latency = Date.now() - start;
+    await ctx.api.editMessageText(
+      ctx.chat!.id,
+      msg.message_id,
+      `🏓 *Pong!*\n\n⚡ Latency: *${latency}ms*\n🤖 Status: Online ✅\n🕐 ${new Date().toLocaleString("id-ID")}`,
+      { parse_mode: "Markdown" }
+    );
+  });
+
+  // ─── /speedtest ───────────────────────────────────────────────────────
+  bot.command("speedtest", async (ctx) => {
+    const start = Date.now();
+    const msg = await ctx.reply("🚀 Mengukur kecepatan server...");
+    try {
+      const testStart = Date.now();
+      await fetch("https://1.1.1.1/dns-query?name=example.com", { headers: { Accept: "application/dns-json" } });
+      const ping = Date.now() - testStart;
+      const totalTime = Date.now() - start;
+      await ctx.api.editMessageText(
+        ctx.chat!.id,
+        msg.message_id,
+        `🚀 *Speed Test Selesai*\n\n` +
+        `🏓 DNS Ping: *${ping}ms*\n` +
+        `⚡ Response time: *${totalTime}ms*\n` +
+        `🌐 Server: Cloudflare (1.1.1.1)\n` +
+        `✅ Status: Normal`,
+        { parse_mode: "Markdown" }
+      );
+    } catch {
+      await ctx.api.editMessageText(ctx.chat!.id, msg.message_id, "❌ Speed test gagal.");
+    }
+  });
+
+  // ─── /timestamp ───────────────────────────────────────────────────────
+  bot.command("timestamp", async (ctx) => {
+    const now = new Date();
+    const unix = Math.floor(now.getTime() / 1000);
+    await safeReply(ctx,
+      `⏱️ *Timestamp*\n\n` +
+      `🕐 Waktu: *${now.toLocaleString("id-ID")}*\n` +
+      `🔢 Unix: *${unix}*\n` +
+      `📅 ISO: \`${now.toISOString()}\`\n` +
+      `🌍 UTC: ${now.toUTCString()}`
+    );
+  });
+
+  // ─── /color ───────────────────────────────────────────────────────────
+  bot.command("color", async (ctx) => {
+    const input = (ctx.match || "").trim();
+    let r: number, g: number, b: number;
+
+    if (input.startsWith("#") && (input.length === 7 || input.length === 4)) {
+      const hex = input.replace("#", "");
+      if (hex.length === 3) {
+        r = parseInt(hex[0] + hex[0], 16);
+        g = parseInt(hex[1] + hex[1], 16);
+        b = parseInt(hex[2] + hex[2], 16);
+      } else {
+        r = parseInt(hex.slice(0, 2), 16);
+        g = parseInt(hex.slice(2, 4), 16);
+        b = parseInt(hex.slice(4, 6), 16);
+      }
+    } else {
+      r = randomInt(0, 255);
+      g = randomInt(0, 255);
+      b = randomInt(0, 255);
+    }
+
+    const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`.toUpperCase();
+    const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+    const isDark = brightness < 128;
+
+    await safeReply(ctx,
+      `🎨 *Info Warna*\n\n` +
+      `🔴 HEX: \`${hex}\`\n` +
+      `🎯 RGB: *rgb(${r}, ${g}, ${b})*\n` +
+      `💡 Kecerahan: ${isDark ? "🌑 Gelap" : "☀️ Terang"}\n\n` +
+      `Preview: [${hex}](https://singlecolorimage.com/get/${hex.replace("#", "")}/100x100)`
+    );
+  });
+
+  // ─── /randomcolor ─────────────────────────────────────────────────────
+  bot.command("randomcolor", async (ctx) => {
+    const r = randomInt(0, 255);
+    const g = randomInt(0, 255);
+    const b = randomInt(0, 255);
+    const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`.toUpperCase();
+    await safeReply(ctx,
+      `🎨 *Warna Acak*\n\n` +
+      `HEX: \`${hex}\`\n` +
+      `RGB: *rgb(${r}, ${g}, ${b})*`
+    );
+  });
+
+  // ─── /password ────────────────────────────────────────────────────────
+  bot.command("password", async (ctx) => {
+    const length = Math.min(parseInt(ctx.match || "16"), 64);
+    const safeLength = isNaN(length) ? 16 : Math.max(8, length);
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+    let password = "";
+    for (let i = 0; i < safeLength; i++) {
+      password += chars[randomInt(0, chars.length - 1)];
+    }
+    await ctx.reply(
+      `🔐 *Password Generator*\n\n` +
+      `🔑 Password (\`${safeLength}\` karakter):\n\`${password}\`\n\n` +
+      `⚠️ _Jangan bagikan password ini ke siapapun!_`,
+      { parse_mode: "Markdown" }
+    );
+  });
+
+  // ─── /ipsum ───────────────────────────────────────────────────────────
+  bot.command("ipsum", async (ctx) => {
+    const sentences = [
+      "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
+      "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.",
+      "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum.",
+      "Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia.",
+    ];
+    const count = Math.min(parseInt(ctx.match || "3"), 5);
+    const safeCount = isNaN(count) ? 3 : Math.max(1, count);
+    const text = shuffle([...sentences]).slice(0, safeCount).join(" ");
+    await safeReply(ctx, `📝 *Lorem Ipsum*\n\n${text}`);
+  });
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }

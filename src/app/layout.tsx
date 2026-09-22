@@ -2,10 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "TeleBot Pro — Bot Telegram Multi-Fitur",
-  description:
-    "Bot Telegram lengkap dengan 65+ fitur: moderasi, ekonomi, fun games, tools, statistik, giveaway, dan banyak lagi!",
-  icons: { icon: "/favicon.ico" },
+  title: "TeleBot Pro — Dashboard",
+  description: "Bot Telegram Multi-Fitur dengan 100+ Perintah | grammY + Next.js + PostgreSQL",
 };
 
 export default function RootLayout({
@@ -15,7 +13,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="id">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased bg-gray-950">{children}</body>
     </html>
   );
 }

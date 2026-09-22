@@ -17,11 +17,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await handleUpdate(new Request(req.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }));
+    await handleUpdate(
+      new Request(req.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    );
 
     return NextResponse.json({ ok: true });
   } catch (err) {
