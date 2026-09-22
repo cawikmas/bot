@@ -203,6 +203,21 @@ export const feedback = pgTable("feedback", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// ─── Bank / Investment ────────────────────────────────────────────────────────
+export const bankAccounts = pgTable("bank_accounts", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  userId: text("user_id").notNull(),
+  savings: integer("savings").default(0),
+  investedAmount: integer("invested_amount").default(0),
+  investedAt: timestamp("invested_at"),
+  loanAmount: integer("loan_amount").default(0),
+  loanDueAt: timestamp("loan_due_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+```[cite: 1]
+
 export type GroupMember = typeof groupMembers.$inferSelect;
 export type GroupSettings = typeof groupSettings.$inferSelect;
 export type Note = typeof notes.$inferSelect;
@@ -213,3 +228,5 @@ export type AfkUser = typeof afkUsers.$inferSelect;
 export type CustomCommand = typeof customCommands.$inferSelect;
 export type Giveaway = typeof giveaways.$inferSelect;
 export type Quote = typeof quotes.$inferSelect;
+export type BankAccount = typeof bankAccounts.$inferSelect;
+```[cite: 1]
